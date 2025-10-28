@@ -15,6 +15,31 @@ app = Flask(__name__)
 app.secret_key = "wonderbeer-demo"
 
 from flask import jsonify
+
+@app.get("/debug/tree")
+def debug_tree():
+    import os
+    roots = [
+        os.path.join(APP_DIR, "data"),
+        APP_DIR,
+    ]
+    out = {}
+    for r in roots:
+        items = []
+        if os.path.isdir(r):
+            for name in sorted(os.listdir(r)):
+                p = os.path.join(r, name)
+                try:
+                    items.append({
+                        "name": name,
+                        "is_dir": os.path.isdir(p),
+                        "size": os.path.getsize(p) if os.path.isfile(p) else None
+                    })
+                except Exception:
+                    items.append({"name": name, "is_dir": os.path.isdir(p), "size": None})
+        out[r] = items
+    return jsonify(out)
+
 @app.get("/debug/breweries")
 def debug_breweries():
     try:
