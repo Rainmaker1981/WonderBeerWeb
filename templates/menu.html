@@ -1,8 +1,29 @@
 {% extends "base.html" %}{% block content %}
+<<<<<<< HEAD
 <h1>Main Menu</h1>
 <div class="cards">
   <a class="card link" href="{{ url_for('add_beer') }}"><h3>➕ Add Beer</h3><p>Append to your profile CSV.</p></a>
   <a class="card link" href="{{ url_for('breweries') }}"><h3>🏭 Find Breweries</h3><p>Search by City + State.</p></a>
   <a class="card link" href="{{ url_for('beer_search') }}"><h3>🔎 Search Beer</h3><p>Fuzzy search your beer cache.</p></a>
+=======
+<h1>Main Menu — {{ profile_name }}</h1>
+
+<div class="cards">
+  <a class="card link" href="{{ url_for('add_beer') }}">
+    <h3>➕ Add Beer</h3><p>Append to your profile CSV.</p>
+  </a>
+
+  <a class="card link" href="{{ url_for('analytics') }}">
+    <h3>📊 Analytics</h3><p>ABV, IBU, Ratings, Styles.</p>
+  </a>
+
+  <a class="card link" href="{{ url_for('breweries') }}">
+    <h3>🏭 Find Breweries</h3><p>Search by City + State.</p>
+  </a>
+
+  <a class="card link" href="{{ url_for('beer_search') }}">
+    <h3>🔎 Search Beer</h3><p>Fuzzy search your beer cache.</p>
+  </a>
+>>>>>>> d6b1cff145c7517364d6ae0f927132f0c6f94fea
 </div>
 {% endblock %}
