@@ -18,16 +18,25 @@ from flask import jsonify
 
 @app.get("/api/suggest")
 def suggest():
-    q = (request.args.get("q") or "").strip()
+    q   = (request.args.get("q") or "").strip()
     typ = (request.args.get("type") or "").strip().lower()
     if not q or len(q) < 2:
         return jsonify({"suggestions": []})
-    # Load sources
-    bdf = load_breweries_df()
-    mdf = load_menu_df()
 
+    # Load dataframes using your loaders (fall back to safe reads if you don't have these helpers)
+    try:
+        bdf = load_breweries_df()
+    except Exception:
+        bdf = read_csv_safe(BREWERIES_CSV)
+
+    try:
+        mdf = load_menu_df()
+    except Exception:
+        mdf = read_csv_safe(MENU_CSV)
+
+    # Helper: preserve order, remove dups
     def uniq(seq):
-        seen=set(); out=[]
+        seen = set(); out = []
         for s in seq:
             s = str(s)
             if s not in seen:
@@ -36,38 +45,55 @@ def suggest():
 
     ql = q.lower()
     suggestions = []
-    if typ == "brewery" and not bdf.empty:
+
+    # ---- Brewery suggestions (shows "Name — City, ST") ----
+    if typ == "brewery" and bdf is not None and not bdf.empty:
         bdf = bdf.dropna(subset=["name"]).copy()
-        bdf["_match"] = bdf["name"].str.lower()
+        bdf["_match"] = bdf["name"].astype(str).str.lower()
+
         exact    = bdf[bdf["_match"] == ql]
         starts   = bdf[bdf["_match"].str.startswith(ql) & ~bdf.index.isin(exact.index)]
         contains = bdf[bdf["_match"].str.contains(ql) & ~bdf.index.isin(exact.index) & ~bdf.index.isin(starts.index)]
 
-    comb = pd.concat([exact, starts, contains]).drop_duplicates(subset=["name","city","state"], keep="first")
-    comb["display"] = comb.apply(lambda r: f"{r['name']} — {r.get('city','')}, {r.get('state','')}".strip().strip(', '), axis=1)
-    suggestions = [s for s in comb["display"].tolist() if s][:12]
+        comb = pd.concat([exact, starts, contains], ignore_index=True)\
+                 .drop_duplicates(subset=["name","city","state"], keep="first")
 
+        def display_row(r):
+            city  = (r.get("city")  or "").strip()
+            state = (r.get("state") or "").strip()
+            tail  = ", ".join([x for x in [city, state] if x])
+            return f"{r['name']} — {tail}" if tail else str(r["name"])
 
-    elif typ == "beer" and not mdf.empty:
-        names = mdf["name"].dropna().astype(str)
-        exact = [n for n in names if n.lower() == ql]
-        starts = [n for n in names if n.lower().startswith(ql) and n not in exact]
-        contains = [n for n in names if ql in n.lower() and n not in exact and n not in starts]
-        suggestions = uniq(exact + starts + contains)[:12]
+        comb["display"] = comb.apply(display_row, axis=1)
+        suggestions = uniq([s for s in comb["display"].tolist() if s])[:12]
 
-    elif typ == "style":
-        src = []
-        if not mdf.empty:
-            src += mdf["style"].dropna().astype(str).tolist()
-        # If user uploaded a profile, include styles from it
-        pdf = read_csv_safe(PROFILE_CSV)
-        if not pdf.empty and "style" in pdf.columns:
-            src += pdf["style"].dropna().astype(str).tolist()
-        if src:
-            names = pd.Series(src).dropna().astype(str).unique().tolist()
-            exact = [n for n in names if n.lower() == ql]
-            starts = [n for n in names if n.lower().startswith(ql) and n not in exact]
+    # ---- Beer name suggestions ----
+    elif typ == "beer" and mdf is not None and not mdf.empty:
+        names = mdf.get("name")
+        if names is not None:
+            names = names.dropna().astype(str)
+            exact    = [n for n in names if n.lower() == ql]
+            starts   = [n for n in names if n.lower().startswith(ql) and n not in exact]
             contains = [n for n in names if ql in n.lower() and n not in exact and n not in starts]
+            suggestions = uniq(exact + starts + contains)[:12]
+
+    # ---- Style suggestions (pull from menu + profile if available) ----
+    elif typ == "style":
+        pool = []
+        if mdf is not None and not mdf.empty and "style" in mdf.columns:
+            pool += mdf["style"].dropna().astype(str).tolist()
+        try:
+            pdf = load_profile()
+            if pdf is not None and not pdf.empty and "style" in pdf.columns:
+                pool += pdf["style"].dropna().astype(str).tolist()
+        except Exception:
+            pass
+
+        if pool:
+            uniq_styles = pd.Series(pool).dropna().astype(str).unique().tolist()
+            exact    = [s for s in uniq_styles if s.lower() == ql]
+            starts   = [s for s in uniq_styles if s.lower().startswith(ql) and s not in exact]
+            contains = [s for s in uniq_styles if ql in s.lower() and s not in exact and s not in starts]
             suggestions = uniq(exact + starts + contains)[:12]
 
     return jsonify({"suggestions": suggestions})
