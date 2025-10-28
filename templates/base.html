@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title or "WonderBEER Web" }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head><body>
+<header class="bar"><div class="inner">
+  <a class="brand" href="/">🍺 WonderBEER Web</a>
+  {% if session.get('profile_name') %}<div class="muted">Profile: {{ session['profile_name'] }}</div>{% endif %}
+</div></header>
+<main class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}<div class="flashes">{% for c,m in messages %}<div class="flash {{c}}">{{ m }}</div>{% endfor %}</div>{% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="foot">© 2025 WonderBEER</footer>
+</body></html>
