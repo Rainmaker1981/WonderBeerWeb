@@ -23,8 +23,8 @@ def suggest():
     if not q or len(q) < 2:
         return jsonify({"suggestions": []})
     # Load sources
-    bdf = read_csv_safe(BREWERIES_CSV)
-    mdf = read_csv_safe(MENU_CSV)
+    bdf = load_breweries_df()
+    mdf = load_menu_df()
 
     def uniq(seq):
         seen=set(); out=[]
@@ -37,11 +37,16 @@ def suggest():
     ql = q.lower()
     suggestions = []
     if typ == "brewery" and not bdf.empty:
-        names = bdf["name"].dropna().astype(str)
-        exact = [n for n in names if n.lower() == ql]
-        starts = [n for n in names if n.lower().startswith(ql) and n not in exact]
-        contains = [n for n in names if ql in n.lower() and n not in exact and n not in starts]
-        suggestions = uniq(exact + starts + contains)[:12]
+        bdf = bdf.dropna(subset=["name"]).copy()
+        bdf["_match"] = bdf["name"].str.lower()
+        exact    = bdf[bdf["_match"] == ql]
+        starts   = bdf[bdf["_match"].str.startswith(ql) & ~bdf.index.isin(exact.index)]
+        contains = bdf[bdf["_match"].str.contains(ql) & ~bdf.index.isin(exact.index) & ~bdf.index.isin(starts.index)]
+
+    comb = pd.concat([exact, starts, contains]).drop_duplicates(subset=["name","city","state"], keep="first")
+    comb["display"] = comb.apply(lambda r: f"{r['name']} — {r.get('city','')}, {r.get('state','')}".strip().strip(', '), axis=1)
+    suggestions = [s for s in comb["display"].tolist() if s][:12]
+
 
     elif typ == "beer" and not mdf.empty:
         names = mdf["name"].dropna().astype(str)
