@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% block content %}
+<h1>Find Breweries</h1>
+
+<form method="post" class="card grid two" style="max-width:700px">
+  <label>City <input name="city" value="{{ form.city }}"></label>
+  <label>State (2-letter) <input name="state" maxlength="2" value="{{ form.state }}"></label>
+  <div style="grid-column:1/-1"><button>Search</button></div>
+</form>
+
+{% if results is not none %}
+  {% if results %}
+    <div class="card" style="margin-top:14px">
+      <h3>Results</h3>
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Type</th><th>Website</th><th>Address</th><th>ZIP</th></tr></thead>
+        <tbody>
+          {% for r in results %}
+            <tr>
+              <td>{{ r.name }}</td>
+              <td>{{ r.brewery_type }}</td>
+              <td>{% if r.website_url %}<a href="{{ r.website_url }}" target="_blank" rel="noopener">Visit</a>{% endif %}</td>
+              <td>{{ r.address_1 }}</td>
+              <td>{{ r.postal_code }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No breweries found for {{ form.city }}, {{ form.state }}.</p>
+  {% endif %}
+{% endif %}
+{% endblock %}
