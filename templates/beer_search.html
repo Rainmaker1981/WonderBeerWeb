@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% block content %}
+<h1>Search Beer Database</h1>
+
+<form method="post" class="card" style="max-width:600px">
+  <label>Search term
+    <input name="term" value="{{ term }}" placeholder="e.g., IPA, Guinness, Stout">
+  </label>
+  <button>Search</button>
+</form>
+
+{% if matches %}
+  <div class="grid three" style="margin-top:16px">
+    {% for b in matches %}
+      <div class="card">
+        <strong>{{ b.name }}</strong><br>
+        <span class="muted">{{ b.style }}</span><br>
+        <span class="muted">
+          {% if b.abv %}ABV {{ b.abv }}%{% endif %}
+          {% if b.ibu %} • IBU {{ b.ibu }}{% endif %}
+        </span>
+        {% if b.desc %}
+          <p class="muted" style="margin-top:6px">{{ b.desc }}</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% elif term %}
+  <p class="muted">No beers found matching "{{ term }}".</p>
+{% endif %}
+{% endblock %}
