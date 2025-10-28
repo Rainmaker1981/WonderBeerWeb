@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block content %}
+<h1>Main Menu — {{ profile_name }}</h1>
+<div class="cards">
+  <a class="card link" href="{{ url_for('add_beer') }}"><h3>➕ Add Beer</h3><p>Append to your CSV.</p></a>
+  <a class="card link" href="{{ url_for('analytics') }}"><h3>📊 Analytics</h3><p>ABV, IBU, Ratings, Styles.</p></a>
+</div>
+{% endblock %}
