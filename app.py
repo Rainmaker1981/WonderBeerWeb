@@ -6,7 +6,7 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(APP_DIR, "data")
 UPLOAD_DIR = os.path.join(APP_DIR, "uploads")
 
-BREWERIES_CSV = os.path.join(DATA_DIR, "breweries_sample.csv")
+BREWERIES_CSV = os.path.join(DATA_DIR, "breweries.csv")
 MENU_CSV = os.path.join(DATA_DIR, "sample_menu.csv")
 PROFILE_CSV = os.path.join(UPLOAD_DIR, "profile.csv")
 SAMPLE_PROFILE_CSV = os.path.join(DATA_DIR, "sample_profile.csv")
@@ -190,7 +190,7 @@ def normalize_untappd_to_profile(df_raw: pd.DataFrame) -> pd.DataFrame:
 
 def load_breweries_df():
     """Prefer data/breweries.csv (OpenBreweryDB). Fall back to cached API, then sample."""
-    BREWERIES_FALLBACK = os.path.join(DATA_DIR, "breweries_sample.csv")
+    BREWERIES_FALLBACK = os.path.join(DATA_DIR, "breweries.csv")
     cache_path = os.path.join(DATA_DIR, "breweries_cache.csv")
 
     # 1) Prefer your local OpenBreweryDB CSV
@@ -338,7 +338,7 @@ def download_sample_profile():
 def breweries():
     q = (request.args.get("q") or "").strip().lower()
     t = (request.args.get("type") or "").strip().lower()
-    bdf = read_csv_safe(BREWERIES_CSV)
+    bdf = load_breweries_df()
     if bdf.empty:
         items = []
         types = []
@@ -403,32 +403,55 @@ def score_beers(menu_df, profile_df):
 
 @app.route("/match")
 def match():
-    brewery_id = request.args.get("brewery_id")
-    order = request.args.get("order", "score")
-    style_filter = (request.args.get("style") or "").strip().lower()
-    name_query = (request.args.get("q") or "").strip()
+    brewery_id  = request.args.get("brewery_id")
+    order       = request.args.get("order", "score")
+    style_filter= (request.args.get("style") or "").strip().lower()
+    name_query  = (request.args.get("q") or "").strip()
 
-    bdf = read_csv_safe(BREWERIES_CSV)
+    # Load breweries and normalize id column if needed
+    bdf = load_breweries_df()
+    if not bdf.empty and "brewery_id" not in bdf.columns and "id" in bdf.columns:
+        bdf = bdf.rename(columns={"id": "brewery_id"})
+
+    # Pick selected brewery (if any)
     b = None
-    if brewery_id and not bdf.empty:
-        pick = bdf[bdf["brewery_id"].astype(str)==str(brewery_id)]
+    if brewery_id and not bdf.empty and "brewery_id" in bdf.columns:
+        pick = bdf[bdf["brewery_id"].astype(str) == str(brewery_id)]
         b = pick.to_dict(orient="records")[0] if not pick.empty else None
 
-    mdf = read_csv_safe(MENU_CSV)
-    if brewery_id and not mdf.empty:
-        mdf = mdf[mdf["brewery_id"].astype(str)==str(brewery_id)]
-    if style_filter and not mdf.empty:
+    # Load beer list (JSON cache preferred)
+    mdf = load_menu_df()
+
+    # --- Fallback: match by brewery name if no brewery_id matches ---
+    if brewery_id and not mdf.empty and "brewery_id" in mdf.columns:
+        # Try ID first
+        mdf = mdf[mdf["brewery_id"].astype(str) == str(brewery_id)]
+
+    # If no beers matched by ID (or no ID column), fall back to name match
+    if (mdf.empty or "brewery_id" not in mdf.columns) and b and "name" in b:
+        if "brewery_name" in mdf.columns:
+            # exact (case-insensitive) name match
+            mdf = mdf[
+                mdf["brewery_name"].str.strip().str.lower()
+                == b["name"].strip().lower()
+            ]
+
+    # Optional: filter by style text
+    if style_filter and not mdf.empty and "style" in mdf.columns:
         mdf = mdf[mdf["style"].str.lower().str.contains(style_filter, na=False)]
 
+    # Score using profile
     pdf = load_profile()
     scored = score_beers(mdf, pdf)
+
+    # Search bonus (beer name)
+    if not scored.empty and name_query:
+        scored = scored.copy()
+        scored["search_bonus"] = scored["name"].apply(lambda n: _fuzzy_bonus(n, name_query))
+        scored["score"] = scored["score"].fillna(0.0) + scored["search_bonus"].fillna(0.0)
+
+    # Sort results
     if not scored.empty:
-        if name_query:
-            scored = scored.copy()
-            scored["search_bonus"] = scored["name"].apply(lambda n: _fuzzy_bonus(n, name_query))
-            # Boost the existing score so exact name matches bubble to the top
-            scored["score"] = scored["score"].fillna(0.0) + scored["search_bonus"].fillna(0.0)
-        # Sort
         if order in {"score","abv","ibu"} and order in scored.columns:
             scored = scored.sort_values(by=order, ascending=False)
         else:
@@ -436,9 +459,9 @@ def match():
 
     rows = scored.to_dict(orient="records") if not scored.empty else []
     return render_template("match.html",
-        brewery=b,
-        menu=not mdf.empty,
-        rows=rows)
+                           brewery=b,
+                           menu=not mdf.empty,
+                           rows=rows)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
