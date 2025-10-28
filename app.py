@@ -103,6 +103,158 @@ def read_csv_safe(path):
 def load_profile():
     return read_csv_safe(PROFILE_CSV)
 
+import requests, json
+
+def normalize_untappd_to_profile(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """Accept an Untappd export (beer_name, brewery_name, beer_type, beer_abv, rating_score, ...)
+    and produce the 5-column profile: style, user_rating, global_rating, user_weight, global_weight.
+    Aggregates multiple rows per style into mean ratings.
+    """
+    cols = {c.lower(): c for c in df_raw.columns}
+
+    def pick(*names):
+        for n in names:
+            if n in cols:
+                return df_raw[cols[n]]
+        return pd.Series([None] * len(df_raw))
+
+    style_series  = pick('beer_type','style','beer_style')
+    user_rating   = pd.to_numeric(pick('rating_score','my_rating','user_rating'), errors='coerce')
+    global_rating = pd.to_numeric(pick('global_rating','global_rating_score','rating_global'), errors='coerce')
+
+    # If ratings look like 0..100 or 0..10, scale toward 0..5
+    def scale(v):
+        if v.dropna().empty:
+            return v
+        mx = v.max(skipna=True)
+        if mx and mx > 10:   # 0..100 → 0..5
+            return v / 20.0
+        if mx and 5 < mx <= 10:  # 0..10 → 0..5
+            return v / 2.0
+        return v
+
+    user_rating   = scale(user_rating)
+    global_rating = scale(global_rating)
+
+    style = style_series.astype(str).str.strip()
+    style = style.replace({'nan': None, 'None': None}).where(style != '', None)
+
+    df = pd.DataFrame({
+        'style': style,
+        'user_rating': user_rating,
+        'global_rating': global_rating
+    }).dropna(subset=['style'])
+
+    # Aggregate preferences by style (case-insensitive key)
+    agg = df.groupby(df['style'].str.lower().str.strip()).agg({
+        'user_rating': 'mean',
+        'global_rating': 'mean'
+    }).reset_index().rename(columns={'style': 'style_norm'})
+
+    # Pretty style name
+    agg['style'] = agg['style_norm'].str.replace(r'\s+', ' ', regex=True).str.title()
+    agg['user_weight'] = 1.0
+    agg['global_weight'] = 0.6
+    return agg[['style','user_rating','global_rating','user_weight','global_weight']]
+
+def load_breweries_df():
+    """Prefer data/breweries.csv (OpenBreweryDB). Fall back to cached API, then sample."""
+    BREWERIES_FALLBACK = os.path.join(DATA_DIR, "breweries_sample.csv")
+    cache_path = os.path.join(DATA_DIR, "breweries_cache.csv")
+
+    # 1) Prefer your local OpenBreweryDB CSV
+    if os.path.exists(BREWERIES_CSV):
+        try:
+            df = pd.read_csv(BREWERIES_CSV)
+            if not df.empty:
+                return df
+        except Exception:
+            pass
+
+    # 2) Use cached API CSV if present
+    if os.path.exists(cache_path):
+        try:
+            df = pd.read_csv(cache_path)
+            if not df.empty:
+                return df
+        except Exception:
+            pass
+
+    # 3) Fetch a fresh page from API and cache
+    try:
+        resp = requests.get("https://api.openbrewerydb.org/breweries?per_page=200", timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        df = pd.json_normalize(data)
+        rename = {"id":"brewery_id","name":"name","brewery_type":"brewery_type","city":"city","state":"state","country":"country"}
+        for k,v in rename.items():
+            if k in df.columns:
+                df.rename(columns={k:v}, inplace=True)
+        df.to_csv(cache_path, index=False)
+        return df
+    except Exception:
+        pass
+
+    # 4) Fallback sample
+    return read_csv_safe(BREWERIES_FALLBACK)
+
+def load_menu_df():
+    """Load beer list from data/beer_cache.json; fall back to sample_menu.csv."""
+    path = os.path.join(DATA_DIR, "beer_cache.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            items = raw.get("beers", raw) if isinstance(raw, dict) else raw
+            mdf = pd.json_normalize(items)
+
+            # Normalize columns from typical sources
+            rename = {
+                "name":"name","beer_name":"name",
+                "style":"style","beer_type":"style",
+                "abv":"abv","beer_abv":"abv",
+                "ibu":"ibu","beer_ibu":"ibu",
+                "global_rating":"global_rating","rating_score":"global_rating",
+                "brewery_id":"brewery_id","brewery.brewery_id":"brewery_id",
+                "brewery_name":"brewery_name"
+            }
+            for k,v in rename.items():
+                if k in mdf.columns and v not in mdf.columns:
+                    mdf.rename(columns={k:v}, inplace=True)
+
+            for c in ["abv","ibu","global_rating","brewery_id"]:
+                if c in mdf.columns:
+                    mdf[c] = pd.to_numeric(mdf[c], errors="coerce")
+            for c in ["name","style","brewery_name"]:
+                if c in mdf.columns:
+                    mdf[c] = mdf[c].astype(str)
+
+            return mdf
+        except Exception:
+            return pd.DataFrame()
+
+    return read_csv_safe(MENU_CSV)
+
+@app.get("/admin/reload_breweries")
+def reload_breweries():
+    """Manually refresh cache from OpenBreweryDB."""
+    try:
+        resp = requests.get("https://api.openbrewerydb.org/breweries?per_page=200", timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        df = pd.json_normalize(data)
+        rename = {"id":"brewery_id","name":"name","brewery_type":"brewery_type","city":"city","state":"state","country":"country"}
+        for k,v in rename.items():
+            if k in df.columns:
+                df.rename(columns={k:v}, inplace=True)
+        cache_path = os.path.join(DATA_DIR, "breweries_cache.csv")
+        df.to_csv(cache_path, index=False)
+        flash(f"Reloaded {len(df)} breweries from OpenBreweryDB.")
+    except Exception as e:
+        flash(f"Reload failed: {e}")
+    return redirect(url_for("breweries"))
+
+
 def get_profile_preview(df, n=10):
     if df.empty: return []
     cols = ["style","user_rating","global_rating","user_weight","global_weight"]
@@ -130,16 +282,22 @@ def upload_profile():
         return redirect(url_for("profile"))
     try:
         df = pd.read_csv(f)
+        cols_lower = {c.lower() for c in df.columns}
         required = {"style","user_rating","global_rating","user_weight","global_weight"}
-        if not required.issubset(set(df.columns)):
-            flash("CSV missing required columns: " + ", ".join(sorted(required)))
-            return redirect(url_for("profile"))
+        if required.issubset(cols_lower) or required.issubset(set(df.columns)):
+            norm = df[['style','user_rating','global_rating','user_weight','global_weight']].copy()
+        else:
+            norm = normalize_untappd_to_profile(df)
+            if norm.empty:
+                flash("Could not infer styles/ratings from this CSV. Expect Untappd export with beer_type and rating_score, or our 5-column format.")
+                return redirect(url_for("profile"))
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        df.to_csv(PROFILE_CSV, index=False)
-        flash("Profile uploaded and set active.")
+        norm.to_csv(PROFILE_CSV, index=False)
+        flash("Uploaded Untappd CSV normalized into profile preferences." if 'beer_type' in [c.lower() for c in df.columns] else "Profile uploaded and set active.")
     except Exception as e:
         flash(f"Upload failed: {e}")
     return redirect(url_for("profile"))
+
 
 @app.get("/profile/sample")
 def download_sample_profile():
