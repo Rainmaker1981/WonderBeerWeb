@@ -15,6 +15,19 @@ app = Flask(__name__)
 app.secret_key = "wonderbeer-demo"
 
 from flask import jsonify
+@app.get("/debug/breweries")
+def debug_breweries():
+    try:
+        df = load_breweries_df()
+        return jsonify({
+            "path": BREWERIES_CSV,
+            "exists": os.path.exists(BREWERIES_CSV),
+            "rows": int(len(df)),
+            "columns": list(df.columns),
+            "head": df.head(3).to_dict(orient="records")
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 @app.get("/api/suggest")
 def suggest():
