@@ -1,207 +1,255 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
-import os, json
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
+import os, math
 import pandas as pd
-from difflib import get_close_matches
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(APP_DIR, "data")
+UPLOAD_DIR = os.path.join(APP_DIR, "uploads")
+
+BREWERIES_CSV = os.path.join(DATA_DIR, "breweries_sample.csv")
+MENU_CSV = os.path.join(DATA_DIR, "sample_menu.csv")
+PROFILE_CSV = os.path.join(UPLOAD_DIR, "profile.csv")
+SAMPLE_PROFILE_CSV = os.path.join(DATA_DIR, "sample_profile.csv")
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-key")
+app.secret_key = "wonderbeer-demo"
 
-ROOT = os.path.dirname(__file__)
-DATA = os.path.join(ROOT, "Data")
-os.makedirs(DATA, exist_ok=True)
+from flask import jsonify
 
-def data_path(*parts): 
-    return os.path.join(DATA, *parts)
+@app.get("/api/suggest")
+def suggest():
+    q = (request.args.get("q") or "").strip()
+    typ = (request.args.get("type") or "").strip().lower()
+    if not q or len(q) < 2:
+        return jsonify({"suggestions": []})
+    # Load sources
+    bdf = read_csv_safe(BREWERIES_CSV)
+    mdf = read_csv_safe(MENU_CSV)
 
-def load_profiles():
-    p = data_path("profiles.json")
-    if os.path.exists(p):
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    def uniq(seq):
+        seen=set(); out=[]
+        for s in seq:
+            s = str(s)
+            if s not in seen:
+                seen.add(s); out.append(s)
+        return out
 
-def save_profiles(obj):
-    with open(data_path("profiles.json"), "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2)
+    ql = q.lower()
+    suggestions = []
+    if typ == "brewery" and not bdf.empty:
+        names = bdf["name"].dropna().astype(str)
+        exact = [n for n in names if n.lower() == ql]
+        starts = [n for n in names if n.lower().startswith(ql) and n not in exact]
+        contains = [n for n in names if ql in n.lower() and n not in exact and n not in starts]
+        suggestions = uniq(exact + starts + contains)[:12]
 
-@app.route("/", methods=["GET","POST"])
-def home():
-    profs = load_profiles()
-    if request.method == "POST":
-        mode = request.form.get("mode")
-        if mode == "create":
-            first = (request.form.get("first") or "").strip().capitalize()
-            last  = (request.form.get("last")  or "").strip().capitalize()
-            if not first or not last:
-                flash("Enter first and last name.", "error")
-                return redirect(url_for("home"))
-            display = f"{first} {last}"
-            fname   = f"{first}_{last}_Beer_Data.csv"
-            csvp = data_path(fname)
-            if not os.path.exists(csvp):
-                with open(csvp, "w", encoding="utf-8") as f:
-                    f.write("beer_name,brewery_name,beer_type,beer_abv,beer_ibu,rating_score\n")
-            profs[fname] = display
-            save_profiles(profs)
-            session["profile_file"] = fname
-            session["profile_name"] = display
-            return redirect(url_for("menu"))
-        else:
-            sel = request.form.get("profile_file")
-            if sel and sel in profs:
-                session["profile_file"] = sel
-                session["profile_name"] = profs[sel]
-                return redirect(url_for("menu"))
-            flash("Select a profile.", "error")
-    return render_template("home.html", profiles=load_profiles())
+    elif typ == "beer" and not mdf.empty:
+        names = mdf["name"].dropna().astype(str)
+        exact = [n for n in names if n.lower() == ql]
+        starts = [n for n in names if n.lower().startswith(ql) and n not in exact]
+        contains = [n for n in names if ql in n.lower() and n not in exact and n not in starts]
+        suggestions = uniq(exact + starts + contains)[:12]
 
-@app.route("/menu")
-def menu():
-    if "profile_file" not in session:
-        return redirect(url_for("home"))
-    return render_template("menu.html", profile_name=session["profile_name"])
+    elif typ == "style":
+        src = []
+        if not mdf.empty:
+            src += mdf["style"].dropna().astype(str).tolist()
+        # If user uploaded a profile, include styles from it
+        pdf = read_csv_safe(PROFILE_CSV)
+        if not pdf.empty and "style" in pdf.columns:
+            src += pdf["style"].dropna().astype(str).tolist()
+        if src:
+            names = pd.Series(src).dropna().astype(str).unique().tolist()
+            exact = [n for n in names if n.lower() == ql]
+            starts = [n for n in names if n.lower().startswith(ql) and n not in exact]
+            contains = [n for n in names if ql in n.lower() and n not in exact and n not in starts]
+            suggestions = uniq(exact + starts + contains)[:12]
 
-@app.route("/add-beer", methods=["GET","POST"])
-def add_beer():
-    if "profile_file" not in session: 
-        return redirect(url_for("home"))
-    if request.method == "POST":
-        row = {k:(request.form.get(k) or "").strip() for k in
-               ["beer_name","brewery_name","beer_type","beer_abv","beer_ibu","rating_score"]}
-        if not row["beer_name"] or not row["brewery_name"]:
-            flash("Beer name and brewery required.", "error")
-        else:
-            csvp = data_path(session["profile_file"])
-            need_header = not os.path.exists(csvp) or os.path.getsize(csvp)==0
-            with open(csvp, "a", encoding="utf-8") as f:
-                if need_header:
-                    f.write("beer_name,brewery_name,beer_type,beer_abv,beer_ibu,rating_score\n")
-                f.write(",".join([row["beer_name"],row["brewery_name"],row["beer_type"],
-                                  row["beer_abv"],row["beer_ibu"],row["rating_score"]])+"\n")
-            flash("Beer added.", "ok")
-            return redirect(url_for("add_beer"))
-    return render_template("add_beer.html")
+    return jsonify({"suggestions": suggestions})
 
-@app.route("/breweries", methods=["GET","POST"])
-def breweries():
-    if "profile_file" not in session: 
-        return redirect(url_for("home"))
-    results, form = None, {"city":"", "state":""}
-    if request.method == "POST":
-        form["city"] = (request.form.get("city") or "").strip()
-        abbr = (request.form.get("state") or "").strip().upper()
-        states = {"NE":"Nebraska","CO":"Colorado","CA":"California","NY":"New York","TX":"Texas"}  # add more or use the longer dict
-        state = states.get(abbr, "")
-        if not form["city"] or not state:
-            flash("Enter a city and valid 2-letter state.", "error")
-        else:
-            try:
-                df = pd.read_csv(data_path("breweries.csv"), dtype=str, low_memory=False)
-                m = (df["city"].str.lower()==form["city"].lower()) & (df["state_province"].str.lower()==state.lower())
-                take = df.loc[m, ["name","brewery_type","website_url","address_1","postal_code"]].fillna("")
-                results = take.to_dict(orient="records")
-            except Exception as e:
-                flash(f"Could not read breweries.csv: {e}", "error")
-    return render_template("breweries.html", results=results, form=form)
 
-@app.route("/beer-search", methods=["GET","POST"])
-def beer_search():
-    if "profile_file" not in session: 
-        return redirect(url_for("home"))
-    matches, term = [], ""
-    if request.method == "POST":
-        term = (request.form.get("term") or "").strip()
-        try:
-            with open(data_path("beer_cache.json"), "r", encoding="utf-8") as f:
-                beer_list = json.load(f)
-            names = [(b.get("nameDisplay") or b.get("name") or "") for b in beer_list]
-            from difflib import get_close_matches
-            close = set(get_close_matches(term, names, n=20, cutoff=0.5))
-            for b in beer_list:
-                nm = b.get("nameDisplay") or b.get("name") or ""
-                if nm in close:
-                    matches.append({
-                        "name": nm,
-                        "style": (b.get("style") or {}).get("name","") if isinstance(b.get("style"), dict) else "",
-                        "abv": b.get("abv",""),
-                        "ibu": b.get("ibu",""),
-                        "desc": (b.get("description") or "")[:300]
-                    })
-        except Exception as e:
-            flash(f"beer_cache.json missing or unreadable: {e}", "error")
-    return render_template("beer_search.html", matches=matches, term=term)
+def _norm(s):
+    return (s or "").strip().lower()
 
-@app.route("/analytics")
-def analytics():
-    if "profile_file" not in session: 
-        return redirect(url_for("home"))
-    csv_candidates = [data_path("user.csv"), data_path(session["profile_file"])]
-    csvp = next((p for p in csv_candidates if os.path.exists(p)), None)
-    if not csvp:
-        flash("No CSV found. Add beers first.", "error")
-        return redirect(url_for("menu"))
+def _fuzzy_bonus(target, query):
+    # Returns a numeric bonus for how well `target` matches `query`.
+    # Priority: exact > startswith > contains > fuzzy ratio.
+    t = _norm(target)
+    q = _norm(query)
+    if not q or not t:
+        return 0.0
+    if t == q:
+        return 100.0
+    if t.startswith(q):
+        return 50.0
+    if q in t:
+        return 15.0
     try:
-        df = pd.read_csv(csvp)
+        from difflib import SequenceMatcher
+        ratio = SequenceMatcher(None, t, q).ratio()  # 0..1
+        return ratio * 10.0
+    except Exception:
+        return 0.0
+
+
+def read_csv_safe(path):
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+def load_profile():
+    return read_csv_safe(PROFILE_CSV)
+
+def get_profile_preview(df, n=10):
+    if df.empty: return []
+    cols = ["style","user_rating","global_rating","user_weight","global_weight"]
+    for c in cols:
+        if c not in df.columns: df[c] = None
+    preview = df[cols].head(n).fillna("")
+    return preview.to_dict(orient="records")
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/profile")
+def profile():
+    df = load_profile()
+    return render_template("profile.html",
+        profile_exists=not df.empty,
+        profile_preview=get_profile_preview(df))
+
+@app.route("/profile/upload", methods=["POST"])
+def upload_profile():
+    f = request.files.get("file")
+    if not f:
+        flash("No file received.")
+        return redirect(url_for("profile"))
+    try:
+        df = pd.read_csv(f)
+        required = {"style","user_rating","global_rating","user_weight","global_weight"}
+        if not required.issubset(set(df.columns)):
+            flash("CSV missing required columns: " + ", ".join(sorted(required)))
+            return redirect(url_for("profile"))
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        df.to_csv(PROFILE_CSV, index=False)
+        flash("Profile uploaded and set active.")
     except Exception as e:
-        flash(f"Could not read CSV: {e}", "error")
-        return redirect(url_for("menu"))
-    want = ["beer_name","brewery_name","beer_type","beer_abv","beer_ibu","rating_score"]
-    mapping = {}
-    for c in df.columns:
-        key = c.replace(" ", "").lower()
-        if key in want:
-            mapping[c] = key
-    df = df.rename(columns=mapping)
-    for col in ["beer_abv","beer_ibu","rating_score"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    kpis = {
-        "total": len(df),
-        "avg_abv": float(df["beer_abv"].mean()) if "beer_abv" in df.columns else None,
-        "avg_ibu": float(df["beer_ibu"].mean()) if "beer_ibu" in df.columns else None,
-        "avg_rating": float(df["rating_score"].mean()) if "rating_score" in df.columns else None,
-    }
-    outdir = os.path.join(ROOT, "static", "analytics")
-    os.makedirs(outdir, exist_ok=True)
-    charts = []
-    def save_fig(fig, name):
-        p = os.path.join(outdir, name)
-        fig.savefig(p, bbox_inches="tight")
-        plt.close(fig)
-        return f"analytics/{name}"
-    if "rating_score" in df.columns and df["rating_score"].notna().any():
-        fig = plt.figure()
-        df["rating_score"].dropna().plot(kind="hist", bins=10, title="Ratings Distribution")
-        plt.xlabel("Rating"); plt.ylabel("Count")
-        charts.append(("Ratings Distribution", save_fig(fig, "ratings_hist.png")))
-    if "beer_abv" in df.columns and df["beer_abv"].notna().any():
-        fig = plt.figure()
-        df["beer_abv"].dropna().plot(kind="hist", bins=12, title="ABV Distribution")
-        plt.xlabel("ABV %"); plt.ylabel("Count")
-        charts.append(("ABV Distribution", save_fig(fig, "abv_hist.png")))
-    if "beer_type" in df.columns and df["beer_type"].notna().any():
-        ts = df["beer_type"].dropna().value_counts().head(10).sort_values(ascending=True)
-        if not ts.empty:
-            fig = plt.figure()
-            ts.plot(kind="barh", title="Top Styles")
-            plt.xlabel("Count"); plt.ylabel("Style")
-            charts.append(("Top Styles", save_fig(fig, "styles_top.png")))
-    if all(c in df.columns for c in ["beer_ibu","rating_score"]) and df[["beer_ibu","rating_score"]].dropna().shape[0] > 0:
-        fig = plt.figure()
-        tmp = df[["beer_ibu","rating_score"]].dropna()
-        plt.scatter(tmp["beer_ibu"], tmp["rating_score"])
-        plt.title("IBU vs Rating"); plt.xlabel("IBU"); plt.ylabel("Rating")
-        charts.append(("IBU vs Rating", save_fig(fig, "ibu_vs_rating.png")))
-    if all(c in df.columns for c in ["beer_abv","rating_score"]) and df[["beer_abv","rating_score"]].dropna().shape[0] > 0:
-        fig = plt.figure()
-        tmp = df[["beer_abv","rating_score"]].dropna()
-        plt.scatter(tmp["beer_abv"], tmp["rating_score"])
-        plt.title("ABV vs Rating"); plt.xlabel("ABV %"); plt.ylabel("Rating")
-        charts.append(("ABV vs Rating", save_fig(fig, "abv_vs_rating.png")))
-    return render_template("analytics.html", charts=charts, kpis=kpis, csv=os.path.basename(csvp))
+        flash(f"Upload failed: {e}")
+    return redirect(url_for("profile"))
+
+@app.get("/profile/sample")
+def download_sample_profile():
+    return send_from_directory(DATA_DIR, "sample_profile.csv", as_attachment=True)
+
+@app.route("/breweries")
+def breweries():
+    q = (request.args.get("q") or "").strip().lower()
+    t = (request.args.get("type") or "").strip().lower()
+    bdf = read_csv_safe(BREWERIES_CSV)
+    if bdf.empty:
+        items = []
+        types = []
+    else:
+        if q:
+            mask = (
+                bdf["name"].str.lower().str.contains(q, na=False) |
+                bdf["city"].str.lower().str.contains(q, na=False) |
+                bdf["state"].str.lower().str.contains(q, na=False)
+            )
+            bdf = bdf[mask]
+        if t:
+            bdf = bdf[bdf["brewery_type"].str.lower()==t]
+        # Fuzzy priority sort
+        if q:
+            bdf = bdf.copy()
+            bdf["brewery_score"] = bdf["name"].apply(lambda n: _fuzzy_bonus(n, q)) \
+                                   + bdf["city"].apply(lambda n: _fuzzy_bonus(n, q)) * 0.25 \
+                                   + bdf["state"].apply(lambda n: _fuzzy_bonus(n, q)) * 0.15
+            bdf = bdf.sort_values(by=["brewery_score","name"], ascending=[False, True])
+        items = bdf.to_dict(orient="records")
+        types = sorted([x for x in bdf["brewery_type"].dropna().unique()])
+    return render_template("breweries.html", items=items, types=types)
+
+def score_beers(menu_df, profile_df):
+    if menu_df.empty:
+        return menu_df
+    # Normalize style match using user profile
+    if profile_df.empty:
+        profile_df = pd.DataFrame(columns=["style","user_rating","global_rating","user_weight","global_weight"])
+    # Prepare lookup by style (case-insensitive)
+    p = profile_df.copy()
+    for col in ["user_rating","global_rating","user_weight","global_weight"]:
+        if col in p.columns:
+            p[col] = pd.to_numeric(p[col], errors="coerce")
+        else:
+            p[col] = 0.0
+    p["style_norm"] = p["style"].str.strip().str.lower()
+    # Build style -> pref score
+    # user_pref = user_rating * user_weight
+    # global component = global_rating * global_weight (if present on beer)
+    style_pref = p.groupby("style_norm").apply(lambda df: (df["user_rating"]*df["user_weight"]).mean()).to_dict()
+    global_w = p["global_weight"].mean() if not p.empty else 0.5
+    user_w = p["user_weight"].mean() if not p.empty else 1.0
+
+    m = menu_df.copy()
+    m["style_norm"] = m["style"].str.strip().str.lower()
+    m["user_pref"] = m["style_norm"].map(style_pref).fillna(0.0)
+    # Normalize global ratings to 0..1 if they look like 0..5 scale
+    if "global_rating" in m.columns:
+        gr = pd.to_numeric(m["global_rating"], errors="coerce")
+        if gr.max(skipna=True) and gr.max(skipna=True) <= 5.0:
+            gr = gr / 5.0
+        m["gr_norm"] = gr.fillna(0.0)
+    else:
+        m["gr_norm"] = 0.0
+
+    # Final score: weighted combination
+    # Score = user_pref * user_w + gr_norm * global_w
+    m["score"] = m["user_pref"].fillna(0.0) * (user_w if not math.isnan(user_w) else 1.0) + m["gr_norm"].fillna(0.0) * (global_w if not math.isnan(global_w) else 0.5)
+    return m
+
+@app.route("/match")
+def match():
+    brewery_id = request.args.get("brewery_id")
+    order = request.args.get("order", "score")
+    style_filter = (request.args.get("style") or "").strip().lower()
+    name_query = (request.args.get("q") or "").strip()
+
+    bdf = read_csv_safe(BREWERIES_CSV)
+    b = None
+    if brewery_id and not bdf.empty:
+        pick = bdf[bdf["brewery_id"].astype(str)==str(brewery_id)]
+        b = pick.to_dict(orient="records")[0] if not pick.empty else None
+
+    mdf = read_csv_safe(MENU_CSV)
+    if brewery_id and not mdf.empty:
+        mdf = mdf[mdf["brewery_id"].astype(str)==str(brewery_id)]
+    if style_filter and not mdf.empty:
+        mdf = mdf[mdf["style"].str.lower().str.contains(style_filter, na=False)]
+
+    pdf = load_profile()
+    scored = score_beers(mdf, pdf)
+    if not scored.empty:
+        if name_query:
+            scored = scored.copy()
+            scored["search_bonus"] = scored["name"].apply(lambda n: _fuzzy_bonus(n, name_query))
+            # Boost the existing score so exact name matches bubble to the top
+            scored["score"] = scored["score"].fillna(0.0) + scored["search_bonus"].fillna(0.0)
+        # Sort
+        if order in {"score","abv","ibu"} and order in scored.columns:
+            scored = scored.sort_values(by=order, ascending=False)
+        else:
+            scored = scored.sort_values(by="score", ascending=False)
+
+    rows = scored.to_dict(orient="records") if not scored.empty else []
+    return render_template("match.html",
+        brewery=b,
+        menu=not mdf.empty,
+        rows=rows)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True, host="0.0.0.0", port=5000)

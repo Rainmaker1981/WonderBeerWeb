@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Welcome</h1>
+    <p class="kicker">This is a local demo of your WonderBEER app: choose a brewery, upload a taste profile, and get beer matches.</p>
+    <div class="grid cols-3">
+      <div class="card">
+        <h3>1) Upload Taste Profile</h3>
+        <p>Provide a CSV with columns: <code>style</code>, <code>user_rating</code>, <code>global_rating</code>, <code>user_weight</code>, <code>global_weight</code>.</p>
+        <a href="{{ url_for('profile') }}" class="btn primary">Go to Profile</a>
+      </div>
+      <div class="card">
+        <h3>2) Pick a Brewery</h3>
+        <p>Search sample breweries by name, city, or state.</p>
+        <a href="{{ url_for('breweries') }}" class="btn primary">Find Breweries</a>
+      </div>
+      <div class="card">
+        <h3>3) Match Beers</h3>
+        <p>We’ll score beers on the menu using your preferences and global ratings.</p>
+        <a href="{{ url_for('match') }}" class="btn primary">Get Matches</a>
+      </div>
+    </div>
+  </div>
+{% endblock %}

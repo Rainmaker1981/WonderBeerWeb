@@ -1,0 +1,5 @@
+brewery_id,name,brewery_type,city,state
+1001,Platte River Brewing,brewpub,Kearney,NE
+1002,Lakeview Ales,micro,Lincoln,NE
+1003,Sandhills Fermentary,nanobrewery,North Platte,NE
+1004,Old Market Brewing,brewpub,Omaha,NE

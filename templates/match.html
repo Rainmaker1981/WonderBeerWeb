@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Beer Matches {% if brewery %}for {{ brewery.name }} ({{ brewery.city }}, {{ brewery.state }}){% endif %}</h2>
+  {% if not menu %}
+    <p class="kicker">No menu found for this brewery. Try another or add to <code>data/sample_menu.csv</code>.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <form method="get">
+    {% if brewery %}<input type="hidden" name="brewery_id" value="{{ brewery.brewery_id }}">{% endif %}
+    <div class="grid cols-3">
+      <div><input type="text" name="q" value="{{ request.args.get('q', '') }}" data-suggest="beer" placeholder="Search beer name"></div>
+      <div><input type="text" name="style" value="{{ request.args.get('style','') }}" placeholder="Filter by style"></div>
+      <div>
+        <select name="order">
+          <option value="score" {% if request.args.get('order','score')=='score' %}selected{% endif %}>Order by Match Score</option>
+          <option value="abv" {% if request.args.get('order')=='abv' %}selected{% endif %}>Order by ABV</option>
+          <option value="ibu" {% if request.args.get('order')=='ibu' %}selected{% endif %}>Order by IBU</option>
+        </select>
+      </div>
+      <div><button class="btn primary">Apply</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Beer</th><th>Style</th><th>ABV</th><th>IBU</th><th>Global ★</th><th>Your Pref</th><th>Score</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ row.style }}</td>
+          <td>{{ '{:.1f}%'.format(row.abv) if row.abv is not none else '' }}</td>
+          <td>{{ int(row.ibu) if row.ibu==row.ibu else '' }}</td>
+          <td>{{ '{:.2f}'.format(row.global_rating) if row.global_rating==row.global_rating else '' }}</td>
+          <td>{{ '{:.2f}'.format(row.user_pref) if row.user_pref==row.user_pref else '' }}</td>
+          <td class="score">{{ '{:.2f}'.format(row.score) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

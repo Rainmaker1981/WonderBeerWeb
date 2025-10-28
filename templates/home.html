@@ -1,24 +1,21 @@
 {% extends "base.html" %}{% block content %}
 <h1>Select or Create Profile</h1>
-<form method="post" class="card" style="max-width:520px">
-  <h3>Existing Profiles</h3>
-  <input type="hidden" name="mode" value="select">
-  <select name="profile_file">
-    <option value="">-- choose --</option>
-    {% for fname, display in profiles.items() %}
-      <option value="{{ fname }}">{{ display }} ({{ fname }})</option>
-    {% endfor %}
-  </select>
-  <button>Continue</button>
-</form>
-<form method="post" class="card" style="max-width:520px;margin-top:12px">
-  <h3>Create New</h3>
-  <input type="hidden" name="mode" value="create">
-  <label>First name <input name="first" required></label>
-  <label>Last name <input name="last" required></label>
-  <button>Create Profile</button>
-</form>
-<div class="cards" style="margin-top:16px">
-  <a class="card link" href="{{ url_for('analytics') }}"><h3>📊 Analytics</h3><p>Charts from your CSV.</p></a>
-  <a class="card link" href="{{ url_for('add_beer') }}"><h3>➕ Add Beer</h3><p>Append an entry.</p></a>
+<div class="grid two">
+  <form method="post" class="card">
+    <h3>Existing Profiles</h3>
+    <input type="hidden" name="mode" value="select">
+    <select name="profile_file">
+      <option value="">-- choose --</option>
+      {% for fname, display in profiles.items() %}<option value="{{ fname }}">{{ display }} ({{ fname }})</option>{% endfor %}
+    </select>
+    <button>Continue</button>
+  </form>
+  <form method="post" class="card">
+    <h3>Create New</h3>
+    <input type="hidden" name="mode" value="create">
+    <label>First name <input name="first" required></label>
+    <label>Last name <input name="last" required></label>
+    <button>Create Profile</button>
+  </form>
+</div>
 {% endblock %}

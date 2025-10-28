@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Your Taste Profile</h2>
+  {% if profile_exists %}
+    <p class="kicker">Active profile: <span class="badge">uploads/profile.csv</span></p>
+    <table>
+      <thead>
+        <tr><th>Style</th><th>User Rating</th><th>Global Rating</th><th>User Weight</th><th>Global Weight</th></tr>
+      </thead>
+      <tbody>
+        {% for row in profile_preview %}
+          <tr>
+            <td>{{ row.style }}</td>
+            <td>{{ row.user_rating }}</td>
+            <td>{{ row.global_rating }}</td>
+            <td>{{ row.user_weight }}</td>
+            <td>{{ row.global_weight }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="kicker">No profile uploaded yet. Use the form below or <a href="{{ url_for('download_sample_profile') }}">download a sample</a>.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>Upload/Replace Profile (CSV)</h3>
+  <form action="{{ url_for('upload_profile') }}" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv" required>
+    <p class="kicker">Expected columns: style, user_rating, global_rating, user_weight, global_weight</p>
+    <button class="btn primary" type="submit">Upload</button>
+    <a class="btn" href="{{ url_for('download_sample_profile') }}">Download Sample</a>
+  </form>
+</div>
+{% endblock %}
