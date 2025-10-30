@@ -358,7 +358,7 @@ def upload_profile():
         flash(f"Upload failed: {e}")
     return redirect(url_for("profile"))
 
-@app.get("/profile/sample")
+@app.get("/profile/sample", endpoint="download_sample_profile")
 def sample_profile():
     return send_from_directory(DATA_DIR, "sample_profile.csv", as_attachment=True)
 
