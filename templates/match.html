@@ -35,11 +35,19 @@
         <tr>
           <td>{{ row.name }}</td>
           <td>{{ row.style }}</td>
-          <td>{{ '{:.1f}%'.format(row.abv) if row.abv is not none else '' }}</td>
-          <td>{{ int(row.ibu) if row.ibu==row.ibu else '' }}</td>
-          <td>{{ '{:.2f}'.format(row.global_rating) if row.global_rating==row.global_rating else '' }}</td>
-          <td>{{ '{:.2f}'.format(row.user_pref) if row.user_pref==row.user_pref else '' }}</td>
-          <td class="score">{{ '{:.2f}'.format(row.score) }}</td>
+
+          {# ABV: show one decimal and a % if value is not NaN #}
+          <td>{% if row.abv==row.abv %}{{ row.abv | float | round(1) }}%{% endif %}</td>
+
+          {# IBU: integer if not NaN #}
+          <td>{% if row.ibu==row.ibu %}{{ row.ibu | int }}{% endif %}</td>
+
+          {# Ratings: two decimals if not NaN #}
+          <td>{% if row.global_rating==row.global_rating %}{{ row.global_rating | float | round(2) }}{% endif %}</td>
+          <td>{% if row.user_pref==row.user_pref %}{{ row.user_pref | float | round(2) }}{% endif %}</td>
+
+          {# Score: two decimals (assumed always present) #}
+          <td class="score">{{ row.score | float | round(2) }}</td>
         </tr>
       {% endfor %}
     </tbody>
