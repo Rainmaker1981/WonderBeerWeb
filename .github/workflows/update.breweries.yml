@@ -2,7 +2,7 @@ name: Update breweries.csv from your fork
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # runs every 6 hours
+    - cron: "0 6 * * *"   # once every day at 6 am UTC
   workflow_dispatch:         # allows manual run from Actions tab
 
 permissions:
