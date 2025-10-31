@@ -1,0 +1,33 @@
+name: Update breweries.csv from your fork
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # runs every 6 hours
+  workflow_dispatch:         # allows manual run from Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout WonderBeerWeb repo
+        uses: actions/checkout@v4
+
+      - name: Download latest breweries.csv from your fork
+        run: |
+          mkdir -p data
+          curl -fsSL "https://raw.githubusercontent.com/Rainmaker1981/openbrewerydb/master/breweries.csv" -o data/breweries.csv
+
+      - name: Commit and push if updated
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/breweries.csv
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto-update breweries.csv from Rainmaker1981/openbrewerydb"
+            git push
+          else
+            echo "No changes found, skipping commit."
+          fi
