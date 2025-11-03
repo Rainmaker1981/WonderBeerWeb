@@ -1,0 +1,122 @@
+<section class="selector">
+  <div class="row">
+    <label for="stateSelect">state / province</label>
+    <select id="stateSelect">
+      <option value="">select a state or province…</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="citySelect">city</label>
+    <select id="citySelect" disabled>
+      <option value="">select a city…</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="venueSelect">venue</label>
+    <select id="venueSelect" disabled>
+      <option value="">select a venue…</option>
+    </select>
+  </div>
+
+  <div class="row actions">
+    <button id="goBtn" disabled>go</button>
+  </div>
+</section>
+
+<script>
+async function getJSON(url){ const r=await fetch(url); return r.json(); }
+const stateSel = document.getElementById('stateSelect');
+const citySel  = document.getElementById('citySelect');
+const venSel   = document.getElementById('venueSelect');
+const goBtn    = document.getElementById('goBtn');
+
+function resetSelect(sel, placeholder){
+  sel.innerHTML = '';
+  const opt = document.createElement('option');
+  opt.value = '';
+  opt.textContent = placeholder;
+  sel.appendChild(opt);
+}
+
+function enable(el, on){ el.disabled = !on; }
+
+function setCities(cities){
+  resetSelect(citySel, 'select a city…');
+  cities.forEach(c=>{
+    const o=document.createElement('option');
+    o.value=c; o.textContent=c;
+    citySel.appendChild(o);
+  });
+  enable(citySel, cities.length>0);
+  setVenues([]);
+}
+
+function setVenues(venues){
+  resetSelect(venSel, 'select a venue…');
+  venues.forEach(v=>{
+    const o=document.createElement('option');
+    o.value = JSON.stringify({ Name: v.Name, City: v.City, State_province: v.State_province });
+    o.textContent = `${v.Name} — ${v.City}, ${v.State_province}`;
+    venSel.appendChild(o);
+  });
+  enable(venSel, venues.length>0);
+  goBtn.disabled = true;
+}
+
+async function loadStates(){
+  const {states} = await getJSON('/api/states');
+  resetSelect(stateSel, 'select a state or province…');
+  states.forEach(s=>{
+    const o=document.createElement('option');
+    o.value=s; o.textContent=s;
+    stateSel.appendChild(o);
+  });
+  enable(stateSel, states.length>0);
+}
+
+stateSel.addEventListener('change', async ()=>{
+  const s = stateSel.value;
+  setCities([]);
+  setVenues([]);
+  enable(citySel, false);
+  enable(venSel, false);
+  goBtn.disabled = true;
+  if(!s) return;
+  const {cities} = await getJSON(`/api/cities?state_province=${encodeURIComponent(s)}`);
+  setCities(cities);
+});
+
+citySel.addEventListener('change', async ()=>{
+  const s = stateSel.value;
+  const c = citySel.value;
+  setVenues([]);
+  enable(venSel, false);
+  goBtn.disabled = true;
+  if(!s || !c) return;
+  const {venues} = await getJSON(`/api/venues?state_province=${encodeURIComponent(s)}&city=${encodeURIComponent(c)}`);
+  setVenues(venues);
+});
+
+venSel.addEventListener('change', ()=>{
+  goBtn.disabled = !venSel.value;
+});
+
+goBtn.addEventListener('click', ()=>{
+  if(!venSel.value) return;
+  const { Name, City, State_province } = JSON.parse(venSel.value);
+  const url = `/match?Name=${encodeURIComponent(Name)}&City=${encodeURIComponent(City)}&State_province=${encodeURIComponent(State_province)}`;
+  window.location.href = url;
+});
+
+loadStates();
+</script>
+
+<style>
+.selector { max-width: 720px; margin: 1rem auto; padding: 1rem; border: 1px solid #e5e7eb; border-radius: .75rem; }
+.row { display: grid; grid-template-columns: 180px 1fr; gap: .75rem; align-items: center; margin: .5rem 0; }
+label { font-weight: 600; }
+select { padding: .5rem; font-size: 1rem; }
+.actions { grid-template-columns: 180px auto; }
+</style>
