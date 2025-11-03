@@ -32,14 +32,30 @@
     </thead>
     <tbody>
       {% for row in rows %}
+        {% set name = row.get('name') %}
+        {% set style = row.get('style') %}
+        {% set abv = row.get('abv') %}
+        {% set ibu = row.get('ibu') %}
+        {% set gr = row.get('global_rating') %}
+        {% set up = row.get('user_pref') %}
+        {% set sc = row.get('score') %}
+
         <tr>
-          <td>{{ row.name }}</td>
-          <td>{{ row.style }}</td>
-          <td>{{ '{:.1f}%'.format(row.abv) if row.abv is not none else '' }}</td>
-          <td>{{ int(row.ibu) if row.ibu==row.ibu else '' }}</td>
-          <td>{{ '{:.2f}'.format(row.global_rating) if row.global_rating==row.global_rating else '' }}</td>
-          <td>{{ '{:.2f}'.format(row.user_pref) if row.user_pref==row.user_pref else '' }}</td>
-          <td class="score">{{ '{:.2f}'.format(row.score) }}</td>
+          <td>{{ name }}</td>
+          <td>{{ style }}</td>
+
+          {# ABV: show one decimal + % if present and not NaN #}
+          <td>{% if abv is not none and abv==abv %}{{ abv | float | round(1) }}%{% endif %}</td>
+
+          {# IBU: integer if present and not NaN #}
+          <td>{% if ibu is not none and ibu==ibu %}{{ ibu | float | round(0) | int }}{% endif %}</td>
+
+          {# Global rating & user pref: two decimals if present and not NaN #}
+          <td>{% if gr is not none and gr==gr %}{{ gr | float | round(2) }}{% endif %}</td>
+          <td>{% if up is not none and up==up %}{{ up | float | round(2) }}{% endif %}</td>
+
+          {# Score: two decimals if present #}
+          <td class="score">{% if sc is not none and sc==sc %}{{ sc | float | round(2) }}{% endif %}</td>
         </tr>
       {% endfor %}
     </tbody>
