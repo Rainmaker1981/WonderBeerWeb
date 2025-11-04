@@ -1,13 +1,11 @@
 services:
   - type: web
-    name: wonderbeer
+    name: wonderbeer-demo
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
-    plan: free
     autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.6
-      - key: FLASK_ENV
-        value: production
+      - key: DATA_DIR
+        value: data

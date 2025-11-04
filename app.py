@@ -1,333 +1,175 @@
-# app.py
-import csv
-import json
-import os
-import threading
+import csv, json, os, threading
 from pathlib import Path
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, request, render_template, redirect, url_for, abort
+from utils import parse_untappd_csv, compute_match_score
+from untappd_scraper import fetch_untappd_menu
 
 app = Flask(__name__)
 
-# --- Paths & globals ---
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 CSV_PATH = DATA_DIR / "breweries.csv"
 INDEX_PATH = Path(os.environ.get("BREWERIES_INDEX_PATH", "/tmp/breweries_index.json"))
+PROFILES_DIR = DATA_DIR / "profiles"
 
 _init_lock = threading.Lock()
 _initialized = False
-_index_mem = {}  # in-memory copy to serve quickly
-
+_index_mem = {}
 
 def build_breweries_index(csv_path: Path, out_path: Path) -> dict:
-    """
-    Read the master breweries.csv and emit a compact JSON index with only:
-    name, city, state_province, country, website_url, longitude, latitude.
-    Also builds nested maps for dropdowns: countries -> states -> cities -> venues.
-    """
-    wanted = {
-        "name",
-        "city",
-        "state_province",
-        "country",
-        "website_url",
-        "longitude",
-        "latitude",
-    }
-
-    venues = []  # flat list of dicts with just the wanted keys
+    wanted = {"name","city","state_province","country","website_url","longitude","latitude"}
+    venues = []
     countries = {}
+    if not csv_path.exists():
+        index = {"venues": [], "index": {}}
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(index), encoding="utf-8")
+        return index
 
     with csv_path.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             rec = {k: (row.get(k) or "").strip() for k in wanted}
-
-            # Normalize lon/lat to float when possible
-            for coord in ("longitude", "latitude"):
+            for coord in ("longitude","latitude"):
                 v = rec.get(coord, "")
                 try:
                     rec[coord] = float(v) if v not in ("", None) else None
                 except ValueError:
                     rec[coord] = None
-
             venues.append(rec)
-
-            # Build hierarchical index
             country = rec["country"] or "Unknown"
             state = rec["state_province"] or "Unknown"
             city = rec["city"] or "Unknown"
             name = rec["name"] or "Unknown"
-
-            countries.setdefault(country, {})
-            countries[country].setdefault(state, {})
-            countries[country][state].setdefault(city, [])
-            countries[country][state][city].append(name)
-
+            countries.setdefault(country, {}).setdefault(state, {}).setdefault(city, []).append(name)
     index = {"venues": venues, "index": countries}
-
-    # Persist to disk (useful on Render for cold starts)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False)
-
+    out_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
     return index
 
-
 def _load_or_build_index():
-    """
-    Load from disk cache if present; otherwise build from CSV.
-    """
     if INDEX_PATH.exists():
-        with INDEX_PATH.open(encoding="utf-8") as f:
-            return json.load(f)
-
-    if not CSV_PATH.exists():
-        # No CSV yet—return empty shape so UI can handle it gracefully.
-        empty = {"venues": [], "index": {}}
-        INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with INDEX_PATH.open("w", encoding="utf-8") as f:
-            json.dump(empty, f)
-        return empty
-
+        return json.loads(INDEX_PATH.read_text(encoding="utf-8"))
     return build_breweries_index(CSV_PATH, INDEX_PATH)
 
-
 def init_once():
-    """
-    Safe to call on every request; runs the heavy init exactly once.
-    """
     global _initialized, _index_mem
-    if _initialized:
-        return
-
+    if _initialized: return
     with _init_lock:
-        if _initialized:
-            return
+        if _initialized: return
+        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
         _index_mem = _load_or_build_index()
         _initialized = True
 
-
 @app.before_request
-def _ensure_initialized():
+def _ensure():
     init_once()
 
+@app.get("/")
+def landing():
+    return render_template("home.html")
 
-# ------------------- API -------------------
+@app.get("/profile")
+def profile():
+    return render_template("profile.html")
 
-@app.get("/api/health")
-def api_health():
-    csv_exists = CSV_PATH.exists()
-    count = len(_index_mem.get("venues", [])) if _initialized else 0
-    return jsonify(
-        {
-            "ok": True,
-            "csv_exists": csv_exists,
-            "csv_path": str(CSV_PATH),
-            "index_path": str(INDEX_PATH),
-            "count": count,
-            "initialized": _initialized,
-        }
-    )
+@app.post("/profile/upload")
+def profile_upload():
+    display_name = request.form.get("display_name","").strip() or "Profile"
+    file = request.files.get("file")
+    if not file:
+        return abort(400, "No CSV file uploaded.")
+    try:
+        profile = parse_untappd_csv(file.stream, display_name)
+    except Exception as e:
+        return abort(400, f"CSV parse error: {e}")
+    safe_name = display_name.replace(" ","_")
+    out_path = PROFILES_DIR / f"{safe_name}.json"
+    out_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+    return redirect(url_for("profile_view", name=safe_name))
 
+@app.get("/profile/<name>")
+def profile_view(name):
+    p = PROFILES_DIR / f"{name}.json"
+    if not p.exists():
+        abort(404)
+    return render_template("profile_view.html", profile_json=p.read_text(encoding="utf-8"))
 
-@app.get("/api/index")
-def api_index():
-    # Return the whole hierarchy (countries -> states -> cities -> venue names)
-    return jsonify(_index_mem.get("index", {}))
-
+@app.get("/breweries")
+def breweries():
+    return render_template("breweries.html")
 
 @app.get("/api/countries")
 def api_countries():
     return jsonify(sorted(list(_index_mem.get("index", {}).keys())))
 
-
 @app.get("/api/states")
 def api_states():
-    country = request.args.get("country", "")
-    states = sorted(list(_index_mem.get("index", {}).get(country, {}).keys()))
-    return jsonify(states)
-
+    country = request.args.get("country","")
+    return jsonify(sorted(list(_index_mem.get("index",{}).get(country,{ }).keys())))
 
 @app.get("/api/cities")
 def api_cities():
-    country = request.args.get("country", "")
-    state = request.args.get("state_province", "")
-    cities = sorted(
-        list(_index_mem.get("index", {}).get(country, {}).get(state, {}).keys())
-    )
-    return jsonify(cities)
-
+    country = request.args.get("country","")
+    state = request.args.get("state_province","")
+    return jsonify(sorted(list(_index_mem.get("index",{}).get(country,{}).get(state,{}).keys())))
 
 @app.get("/api/venues")
 def api_venues():
-    country = request.args.get("country", "")
-    state = request.args.get("state_province", "")
-    city = request.args.get("city", "")
-    venues = _index_mem.get("index", {}).get(country, {}).get(state, {}).get(city, [])
+    country = request.args.get("country","")
+    state = request.args.get("state_province","")
+    city = request.args.get("city","")
+    venues = _index_mem.get("index",{}).get(country,{}).get(state,{}).get(city,[])
     return jsonify(sorted(venues))
-
 
 @app.get("/api/venue_detail")
 def api_venue_detail():
-    """
-    Given country, state_province, city, name -> return the full record
-    including website_url and coordinates for 'Get Directions'.
-    """
-    country = request.args.get("country", "")
-    state = request.args.get("state_province", "")
-    city = request.args.get("city", "")
-    name = request.args.get("name", "")
-
-    # simple linear scan over venues list (could be indexed by tuple if needed)
+    country = request.args.get("country","")
+    state = request.args.get("state_province","")
+    city = request.args.get("city","")
+    name = request.args.get("name","")
     for v in _index_mem.get("venues", []):
-        if (
-            (v.get("country") == country)
-            and (v.get("state_province") == state)
-            and (v.get("city") == city)
-            and (v.get("name") == name)
-        ):
+        if v.get("country")==country and v.get("state_province")==state and v.get("city")==city and v.get("name")==name:
             return jsonify(v)
+    return jsonify({"error":"not found"}), 404
 
-    return jsonify({"error": "not found"}), 404
+@app.get("/match")
+def match_page():
+    return render_template("match.html")
 
+@app.post("/match/run")
+def match_run():
+    profile_slug = request.form.get("profile_slug","").strip()
+    venue_url = request.form.get("venue_url","").strip()
+    if not profile_slug or not venue_url:
+        return abort(400, "profile and venue_url are required.")
+    p = PROFILES_DIR / f"{profile_slug}.json"
+    if not p.exists():
+        return abort(400, "Profile JSON not found.")
+    profile = json.loads(p.read_text(encoding="utf-8"))
+    menu = fetch_untappd_menu(venue_url)
+    results = []
+    for beer in menu:
+        score = compute_match_score(profile, beer)
+        out = beer.copy()
+        out["match"] = score
+        results.append(out)
+    results.sort(key=lambda x: x.get("match",0.0), reverse=True)
+    return render_template("match_results.html", profile_name=profile.get("name","Profile"), venue_url=venue_url, results=results)
 
-# ------------------- Minimal UI (optional) -------------------
+@app.get("/lookup")
+def lookup_page():
+    return render_template("lookup.html")
 
-_INDEX_HTML = """
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>WonderBEER – Brewery Finder</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-      .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-bottom: 16px; }
-      select, button, a { padding: 10px; font-size: 16px; }
-      .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-      .muted { color: #555; font-size: 14px; }
-      .actions a { margin-right: 12px; }
-    </style>
-  </head>
-  <body>
-    <h1>WonderBEER — Find a Venue</h1>
-    <p class="muted">Start at the left and work across: Country → State/Province → City → Venue.</p>
+@app.get("/api/health")
+def api_health():
+    return jsonify({
+        "ok": True,
+        "initialized": _initialized,
+        "csv_exists": CSV_PATH.exists(),
+        "venues_count": len(_index_mem.get("venues",[])),
+        "profiles": sorted([p.name for p in PROFILES_DIR.glob("*.json")])
+    })
 
-    <div class="row">
-      <select id="country"></select>
-      <select id="state"></select>
-      <select id="city"></select>
-      <select id="venue"></select>
-    </div>
-
-    <div class="card">
-      <div id="chosen" class="muted">No venue selected.</div>
-      <div class="actions" id="links" style="margin-top:10px;"></div>
-    </div>
-
-    <script>
-      const qs = (s)=>document.querySelector(s);
-      const countrySel = qs('#country');
-      const stateSel = qs('#state');
-      const citySel = qs('#city');
-      const venueSel = qs('#venue');
-      const chosen = qs('#chosen');
-      const links = qs('#links');
-
-      async function getJSON(url){ const r = await fetch(url); return r.json(); }
-
-      function fill(sel, arr, prompt){
-        sel.innerHTML = '';
-        const opt = document.createElement('option');
-        opt.value = ''; opt.textContent = prompt;
-        sel.appendChild(opt);
-        for(const v of arr){
-          const o = document.createElement('option');
-          o.value = v; o.textContent = v; sel.appendChild(o);
-        }
-        sel.disabled = arr.length === 0;
-      }
-
-      async function refreshCountries(){
-        const countries = await getJSON('/api/countries');
-        fill(countrySel, countries, 'Select Country');
-        fill(stateSel, [], 'Select State/Province');
-        fill(citySel, [], 'Select City');
-        fill(venueSel, [], 'Select Venue');
-      }
-
-      async function refreshStates(){
-        const c = countrySel.value;
-        if(!c){ fill(stateSel, [], 'Select State/Province'); return; }
-        const states = await getJSON(`/api/states?country=${encodeURIComponent(c)}`);
-        fill(stateSel, states, 'Select State/Province');
-        fill(citySel, [], 'Select City');
-        fill(venueSel, [], 'Select Venue');
-      }
-
-      async function refreshCities(){
-        const c = countrySel.value, s = stateSel.value;
-        if(!c || !s){ fill(citySel, [], 'Select City'); return; }
-        const cities = await getJSON(`/api/cities?country=${encodeURIComponent(c)}&state_province=${encodeURIComponent(s)}`);
-        fill(citySel, cities, 'Select City');
-        fill(venueSel, [], 'Select Venue');
-      }
-
-      async function refreshVenues(){
-        const c = countrySel.value, s = stateSel.value, ci = citySel.value;
-        if(!c || !s || !ci){ fill(venueSel, [], 'Select Venue'); return; }
-        const venues = await getJSON(`/api/venues?country=${encodeURIComponent(c)}&state_province=${encodeURIComponent(s)}&city=${encodeURIComponent(ci)}`);
-        fill(venueSel, venues, 'Select Venue');
-      }
-
-      async function showVenue(){
-        links.innerHTML = '';
-        const c = countrySel.value, s = stateSel.value, ci = citySel.value, n = venueSel.value;
-        if(!c || !s || !ci || !n){ chosen.textContent = 'No venue selected.'; return; }
-
-        const v = await getJSON(`/api/venue_detail?country=${encodeURIComponent(c)}&state_province=${encodeURIComponent(s)}&city=${encodeURIComponent(ci)}&name=${encodeURIComponent(n)}`);
-        if(v.error){ chosen.textContent = 'Not found'; return; }
-
-        chosen.textContent = `${v.name} — ${v.city}, ${v.state_province} (${v.country})`;
-
-        // Visit Website
-        if(v.website_url){
-          const a = document.createElement('a');
-          a.href = v.website_url; a.target = '_blank'; a.rel='noopener';
-          a.textContent = 'Visit Website';
-          links.appendChild(a);
-        }
-
-        // Get Directions
-        const g = document.createElement('a');
-        if(v.latitude != null && v.longitude != null){
-          g.href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(v.latitude + ',' + v.longitude)}`;
-        } else {
-          g.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.name + ' ' + v.city + ' ' + v.state_province)}`;
-        }
-        g.target = '_blank'; g.rel='noopener';
-        g.textContent = 'Get Directions';
-        links.appendChild(g);
-      }
-
-      countrySel.addEventListener('change', refreshStates);
-      stateSel.addEventListener('change', refreshCities);
-      citySel.addEventListener('change', refreshVenues);
-      venueSel.addEventListener('change', showVenue);
-
-      refreshCountries();
-    </script>
-  </body>
-</html>
-"""
-
-@app.get("/")
-def home():
-    return render_template_string(_INDEX_HTML)
-
-
-# ------------------- Entry -------------------
 if __name__ == "__main__":
-    # Local dev: ensure initialization before first request
     init_once()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
