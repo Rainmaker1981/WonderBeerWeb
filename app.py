@@ -1,63 +1,116 @@
-import csv, re
-from collections import defaultdict
-from flask import Flask, jsonify, request
+# wonderBEER web (v2) — guided flow + profiles + analytics + 3-dropdown finder
+import os
+from pathlib import Path
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
+import csv, json
 
-app = Flask(__name__)
+def create_app():
+    app = Flask(__name__)
+    app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
 
-BREWERIES = []
-BY_STATE = defaultdict(list)
-BY_STATE_CITY = defaultdict(lambda: defaultdict(list))
+    BASE_DIR = Path(__file__).resolve().parent
+    DATA_DIR = BASE_DIR / "data"
+    PROFILES_DIR = DATA_DIR / "profiles"
 
-def _norm_space(s): return re.sub(r"\s+", " ", (s or "")).strip()
+    BREWERIES_CSV = Path(os.getenv("BREWERIES_CSV", str(DATA_DIR / "breweries.csv")))
 
-def _norm_city(s):
-    s = _norm_space(s)
-    return s.title()
+    _breweries_index = None
 
-def _norm_state_province(s):
-    s = _norm_space(s)
-    return s if (len(s) <= 3 and s.isupper()) else s.title()
+    def load_breweries_index():
+        nonlocal _breweries_index
+        if _breweries_index is not None:
+            return _breweries_index
 
-def load_breweries(csv_path="breweries.csv"):
-    BREWERIES.clear(); BY_STATE.clear(); BY_STATE_CITY.clear()
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        r = csv.DictReader(f)
-        for row in r:
-            name = _norm_space(row.get("Name", ""))
-            city = _norm_city(row.get("City", ""))
-            statep = _norm_state_province(row.get("State_province", ""))
-            if not (name and city and statep):
-                continue
-            rec = {"Name": name, "City": city, "State_province": statep}
-            BREWERIES.append(rec)
-            BY_STATE[statep].append(rec)
-            BY_STATE_CITY[statep][city].append(rec)
+        states = []
+        cities = {}
+        venues = {}
 
-load_breweries()
+        if not BREWERIES_CSV.exists():
+            app.logger.warning(f"breweries.csv not found at {BREWERIES_CSV}")
+            _breweries_index = {"states": [], "cities": {}, "venues": {}}
+            return _breweries_index
 
-@app.get("/api/states")
-def api_states():
-    states = sorted([s for s in BY_STATE.keys() if s])
-    return jsonify(states=states)
+        with BREWERIES_CSV.open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = (row.get("Name") or "").strip()
+                city = (row.get("City") or "").strip()
+                state = (row.get("State_province") or "").strip()
+                if not (name and city and state):
+                    continue
+                if state not in states:
+                    states.append(state)
+                cities.setdefault(state, set()).add(city)
+                venues.setdefault((state, city), []).append(name)
 
-@app.get("/api/cities")
-def api_cities():
-    statep = _norm_state_province(request.args.get("state_province", ""))
-    if not statep or statep not in BY_STATE_CITY:
-        return jsonify(cities=[])
-    cities = sorted(BY_STATE_CITY[statep].keys())
-    return jsonify(cities=cities)
+        states.sort()
+        cities_sorted = {st: sorted(list(cset)) for st, cset in cities.items()}
+        venues_sorted = {f"{st}||{cty}": sorted(list(set(vlist))) for (st, cty), vlist in venues.items()}
+        _breweries_index = {"states": states, "cities": cities_sorted, "venues": venues_sorted}
+        return _breweries_index
 
-@app.get("/api/venues")
-def api_venues():
-    statep = _norm_state_province(request.args.get("state_province", ""))
-    city   = _norm_city(request.args.get("city", ""))
-    if not statep or statep not in BY_STATE_CITY or not city:
-        return jsonify(venues=[])
-    items = BY_STATE_CITY[statep].get(city, [])
-    venues = [{
-        "Name": b["Name"],
-        "City": b["City"],
-        "State_province": b["State_province"],
-    } for b in sorted(items, key=lambda x: x["Name"].lower())]
-    return jsonify(venues=venues)
+    @app.route("/")
+    def index():
+        return render_template("index.html")
+
+    @app.route("/profiles", methods=["GET", "POST"])
+    def profiles():
+        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+        if request.method == "POST":
+            file = request.files.get("profile")
+            if not file or file.filename == "":
+                flash("No profile file selected.", "error")
+                return redirect(url_for("profiles"))
+            try:
+                data = json.load(file.stream)
+                name = (data.get("name") or "profile").strip()
+                safe = "".join(c for c in name if c.isalnum() or c in ("_", "-", "."))
+                if not safe:
+                    safe = "profile"
+                out = PROFILES_DIR / f"{safe}.json"
+                with out.open("w", encoding="utf-8") as fp:
+                    json.dump(data, fp, ensure_ascii=False, indent=2)
+                flash(f"Uploaded {out.name}", "ok")
+            except Exception as e:
+                app.logger.exception("Profile upload failed")
+                flash(f"Upload failed: {e}", "error")
+            return redirect(url_for("profiles"))
+
+        existing = sorted([p.name for p in PROFILES_DIR.glob("*.json")])
+        if (DATA_DIR / "sample_profile.json").exists():
+            existing = ["sample_profile.json"] + existing
+        return render_template("profiles.html", files=existing)
+
+    @app.route("/profiles/download/<name>")
+    def download_profile(name):
+        path = (PROFILES_DIR / name) if not name.startswith("sample_") else (DATA_DIR / name)
+        if not path.exists():
+            flash("Profile not found.", "error")
+            return redirect(url_for("profiles"))
+        return send_from_directory(path.parent, path.name, as_attachment=True)
+
+    @app.route("/finder")
+    def finder():
+        return render_template("select_venue.html")
+
+    @app.route("/api/breweries_index")
+    def api_breweries_index():
+        idx = load_breweries_index()
+        return jsonify(idx)
+
+    @app.route("/analytics")
+    def analytics():
+        profile_name = request.args.get("profile", "sample_profile.json")
+        path = (PROFILES_DIR / profile_name) if not profile_name.startswith("sample_") else (DATA_DIR / profile_name)
+        if not path.exists():
+            path = DATA_DIR / "sample_profile.json"
+        try:
+            with path.open(encoding="utf-8") as f:
+                prof = json.load(f)
+        except Exception:
+            prof = {"name":"Sample","styles":{"IPA":3,"Stout":2,"Lager":4},"flavors":{"Hoppy":4,"Roasty":2,"Crisp":3}}
+        return render_template("analytics.html", profile=prof, profile_name=path.name)
+
+    return app
+
+app = create_app()
