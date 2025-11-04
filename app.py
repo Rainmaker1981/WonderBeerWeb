@@ -1,116 +1,208 @@
-# wonderBEER web (v2) — guided flow + profiles + analytics + 3-dropdown finder
-import os
+
+import os, csv, json
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
-import csv, json
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from werkzeug.utils import secure_filename
 
-def create_app():
-    app = Flask(__name__)
-    app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
+try:
+    import pandas as pd
+except Exception:
+    pd = None
 
-    BASE_DIR = Path(__file__).resolve().parent
-    DATA_DIR = BASE_DIR / "data"
-    PROFILES_DIR = DATA_DIR / "profiles"
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev")
 
-    BREWERIES_CSV = Path(os.getenv("BREWERIES_CSV", str(DATA_DIR / "breweries.csv")))
+APP_ROOT = Path(__file__).parent.resolve()
+DATA_DIR = APP_ROOT / "data"
+PROFILES_DIR = DATA_DIR / "profiles"
+PRIMARY_BREWERIES = DATA_DIR / "breweries.csv"
+FALLBACK_BREWERIES = DATA_DIR / "breweries_sample.csv"
 
-    _breweries_index = None
+def get_breweries_path():
+    return PRIMARY_BREWERIES if PRIMARY_BREWERIES.exists() else FALLBACK_BREWERIES
 
-    def load_breweries_index():
-        nonlocal _breweries_index
-        if _breweries_index is not None:
-            return _breweries_index
+def load_breweries_rows():
+    path = get_breweries_path()
+    rows = []
+    if not path.exists():
+        return rows
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            row = {k.strip().lower(): (v.strip() if isinstance(v, str) else v) for k, v in r.items()}
+            name = row.get("name") or row.get("brewery_name") or row.get("venue_name")
+            city = row.get("city") or row.get("brewery_city") or row.get("venue_city")
+            state = row.get("state_province") or row.get("state") or row.get("province") or row.get("region") or row.get("brewery_state") or row.get("venue_state")
+            country = row.get("country") or row.get("brewery_country") or row.get("venue_country")
+            url = row.get("url") or row.get("website") or row.get("brewery_url")
+            if name and city and (state or country):
+                rows.append({
+                    "name": name, "city": city,
+                    "state_province": state or "", "country": country or "", "url": url or ""
+                })
+    return rows
 
-        states = []
-        cities = {}
-        venues = {}
-
-        if not BREWERIES_CSV.exists():
-            app.logger.warning(f"breweries.csv not found at {BREWERIES_CSV}")
-            _breweries_index = {"states": [], "cities": {}, "venues": {}}
-            return _breweries_index
-
-        with BREWERIES_CSV.open(newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                name = (row.get("Name") or "").strip()
-                city = (row.get("City") or "").strip()
-                state = (row.get("State_province") or "").strip()
-                if not (name and city and state):
-                    continue
-                if state not in states:
-                    states.append(state)
-                cities.setdefault(state, set()).add(city)
-                venues.setdefault((state, city), []).append(name)
-
-        states.sort()
-        cities_sorted = {st: sorted(list(cset)) for st, cset in cities.items()}
-        venues_sorted = {f"{st}||{cty}": sorted(list(set(vlist))) for (st, cty), vlist in venues.items()}
-        _breweries_index = {"states": states, "cities": cities_sorted, "venues": venues_sorted}
-        return _breweries_index
-
-    @app.route("/")
-    def index():
-        return render_template("index.html")
-
-    @app.route("/profiles", methods=["GET", "POST"])
-    def profiles():
-        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        if request.method == "POST":
-            file = request.files.get("profile")
-            if not file or file.filename == "":
-                flash("No profile file selected.", "error")
-                return redirect(url_for("profiles"))
-            try:
-                data = json.load(file.stream)
-                name = (data.get("name") or "profile").strip()
-                safe = "".join(c for c in name if c.isalnum() or c in ("_", "-", "."))
-                if not safe:
-                    safe = "profile"
-                out = PROFILES_DIR / f"{safe}.json"
-                with out.open("w", encoding="utf-8") as fp:
-                    json.dump(data, fp, ensure_ascii=False, indent=2)
-                flash(f"Uploaded {out.name}", "ok")
-            except Exception as e:
-                app.logger.exception("Profile upload failed")
-                flash(f"Upload failed: {e}", "error")
-            return redirect(url_for("profiles"))
-
-        existing = sorted([p.name for p in PROFILES_DIR.glob("*.json")])
-        if (DATA_DIR / "sample_profile.json").exists():
-            existing = ["sample_profile.json"] + existing
-        return render_template("profiles.html", files=existing)
-
-    @app.route("/profiles/download/<name>")
-    def download_profile(name):
-        path = (PROFILES_DIR / name) if not name.startswith("sample_") else (DATA_DIR / name)
-        if not path.exists():
-            flash("Profile not found.", "error")
-            return redirect(url_for("profiles"))
-        return send_from_directory(path.parent, path.name, as_attachment=True)
-
-    @app.route("/finder")
-    def finder():
-        return render_template("select_venue.html")
-
-    @app.route("/api/breweries_index")
-    def api_breweries_index():
-        idx = load_breweries_index()
-        return jsonify(idx)
-
-    @app.route("/analytics")
-    def analytics():
-        profile_name = request.args.get("profile", "sample_profile.json")
-        path = (PROFILES_DIR / profile_name) if not profile_name.startswith("sample_") else (DATA_DIR / profile_name)
-        if not path.exists():
-            path = DATA_DIR / "sample_profile.json"
+def list_profiles():
+    items = []
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    for p in PROFILES_DIR.glob("*.json"):
         try:
-            with path.open(encoding="utf-8") as f:
-                prof = json.load(f)
+            data = json.loads(p.read_text(encoding="utf-8"))
+            display = data.get("name") or p.stem
         except Exception:
-            prof = {"name":"Sample","styles":{"IPA":3,"Stout":2,"Lager":4},"flavors":{"Hoppy":4,"Roasty":2,"Crisp":3}}
-        return render_template("analytics.html", profile=prof, profile_name=path.name)
+            display = p.stem
+        items.append({"file": p.name, "display_name": display, "type": "json"})
+    return sorted(items, key=lambda x: x["display_name"].lower())
 
-    return app
+@app.route("/")
+def index():
+    return render_template("index.html", profiles=list_profiles())
 
-app = create_app()
+@app.route("/profiles")
+def profiles_page():
+    return render_template("profiles.html", profiles=list_profiles())
+
+@app.route("/analytics")
+def analytics():
+    return render_template("analytics.html", profiles=list_profiles())
+
+# --- Locations APIs ---
+@app.get("/api/locations/countries")
+def api_countries():
+    rows = load_breweries_rows()
+    countries = sorted({r["country"] or "United States" for r in rows if (r.get("country") or "").strip()})
+    if "United States" in countries:
+        countries.remove("United States")
+        countries = ["United States"] + countries
+    return jsonify(countries)
+
+@app.get("/api/locations/states")
+def api_states():
+    country = request.args.get("country", "").strip()
+    rows = load_breweries_rows()
+    states = sorted({r["state_province"] for r in rows if (not country or r["country"] == country) and r["state_province"]})
+    return jsonify(states)
+
+@app.get("/api/locations/cities")
+def api_cities():
+    country = request.args.get("country", "").strip()
+    state = request.args.get("state", "").strip()
+    rows = load_breweries_rows()
+    cities = sorted({r["city"] for r in rows if (not country or r["country"] == country) and (not state or r["state_province"] == state)})
+    return jsonify(cities)
+
+@app.get("/api/locations/venues")
+def api_venues():
+    country = request.args.get("country", "").strip()
+    state = request.args.get("state", "").strip()
+    city = request.args.get("city", "").strip()
+    rows = load_breweries_rows()
+    venues = [r for r in rows if (not country or r["country"] == country) and (not state or r["state_province"] == state) and (not city or r["city"] == city)]
+    venues = sorted(venues, key=lambda v: v["name"].lower())
+    return jsonify(venues)
+
+# --- Profiles APIs ---
+@app.get("/api/profiles")
+def api_profiles():
+    return jsonify(list_profiles())
+
+@app.get("/api/profiles/<filename>")
+def api_profile_detail(filename):
+    path = PROFILES_DIR / filename
+    if not path.exists() or path.suffix.lower() != ".json":
+        return jsonify({"error": "Profile not found"}), 404
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify(data)
+
+@app.post("/api/profiles/upload")
+def api_profile_upload():
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    file = request.files["file"]
+    display_name = request.form.get("display_name", "").strip() or "Unnamed"
+    safe_basename = secure_filename(display_name.replace(" ", "_"))
+    out_json = PROFILES_DIR / f"{safe_basename}.json"
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+
+    if pd is None:
+        return jsonify({"error": "Pandas not available"}), 500
+    try:
+        df = pd.read_csv(file, sep=";", engine="python")
+    except Exception as e:
+        return jsonify({"error": f"CSV parse failed: {e}"}), 400
+
+    def col(name):
+        return df[name] if name in df.columns else None
+
+    # styles
+    styles = {}
+    if col("beer_type") is not None:
+        styles = (df["beer_type"].dropna().astype(str).str.strip().value_counts().head(5)).to_dict()
+
+    # flavors
+    flavors = {}
+    if col("flavor_profiles") is not None:
+        for s in df["flavor_profiles"].dropna().astype(str):
+            for tok in [t.strip() for t in s.split(",") if t.strip()]:
+                flavors[tok] = flavors.get(tok, 0) + 1
+        flavors = dict(sorted(flavors.items(), key=lambda kv: kv[1], reverse=True)[:5])
+
+    # helpers
+    def to_float(x):
+        try: return float(x)
+        except: return None
+
+    abv_points, ibu_points = [], []
+    for _, r in df.iterrows():
+        abv = to_float(r.get("beer_abv"))
+        ibu = to_float(r.get("beer_ibu"))
+        rating = to_float(r.get("rating_score"))
+        entry = {"beer": str(r.get("beer_name") or "")[:80], "style": str(r.get("beer_type") or ""), "rating": rating}
+        if abv is not None: abv_points.append({**entry, "abv": abv})
+        if ibu is not None: ibu_points.append({**entry, "ibu": ibu})
+
+    # breweries top 5
+    for colname in ["brewery_name", "brewery_city", "brewery_state", "brewery_url"]:
+        if colname not in df.columns:
+            df[colname] = None
+    g = (df.groupby(["brewery_name","brewery_city","brewery_state","brewery_url"], dropna=False)
+           .size().reset_index(name="count").sort_values("count", ascending=False).head(5))
+    breweries_top = []
+    for _, r in g.iterrows():
+        breweries_top.append({
+            "name": r["brewery_name"] or "",
+            "city": r["brewery_city"] or "",
+            "state": r["brewery_state"] or "",
+            "count": int(r["count"]),
+            "url": r["brewery_url"] or ""
+        })
+
+    import numpy as np
+    rating_mean = float(np.nanmean(pd.to_numeric(df.get("rating_score", []), errors="coerce"))) if "rating_score" in df else None
+    global_mean = float(np.nanmean(pd.to_numeric(df.get("global_rating_score", []), errors="coerce"))) if "global_rating_score" in df else None
+
+    result = {
+        "name": display_name,
+        "styles": styles,
+        "flavors": flavors,
+        "abv": abv_points,
+        "ibu": ibu_points,
+        "breweries": breweries_top,
+        "ratings": {
+            "mean_rating": round(rating_mean,3) if rating_mean==rating_mean else None,
+            "mean_global": round(global_mean,3) if global_mean==global_mean else None,
+            "n": int(len(df))
+        }
+    }
+    out_json.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return jsonify({"ok": True, "file": out_json.name, "profile": result})
+
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory((Path(__file__).parent / "static"), filename)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
