@@ -1,208 +1,238 @@
+import os
+import io
+import json
+from collections import Counter, defaultdict
 
-import os, csv, json
-from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_from_directory
-from werkzeug.utils import secure_filename
+from flask import Flask, jsonify, request, render_template, send_from_directory
+import pandas as pd
 
-try:
-    import pandas as pd
-except Exception:
-    pd = None
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(APP_ROOT, "data")
+PROFILES_DIR = os.path.join(DATA_DIR, "profiles")
+BREWERIES_CSV = os.path.join(DATA_DIR, "breweries.csv")
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev")
 
-APP_ROOT = Path(__file__).parent.resolve()
-DATA_DIR = APP_ROOT / "data"
-PROFILES_DIR = DATA_DIR / "profiles"
-PRIMARY_BREWERIES = DATA_DIR / "breweries.csv"
-FALLBACK_BREWERIES = DATA_DIR / "breweries_sample.csv"
+def autodetect_sep_and_read(file_storage):
+    sample = file_storage.stream.read(2048).decode(errors="ignore")
+    file_storage.stream.seek(0)
+    sep = ";" if sample.count(";") > sample.count(",") else ","
+    return pd.read_csv(file_storage, sep=sep, engine="python")
 
-def get_breweries_path():
-    return PRIMARY_BREWERIES if PRIMARY_BREWERIES.exists() else FALLBACK_BREWERIES
+def safe_float(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
 
-def load_breweries_rows():
-    path = get_breweries_path()
-    rows = []
-    if not path.exists():
-        return rows
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            row = {k.strip().lower(): (v.strip() if isinstance(v, str) else v) for k, v in r.items()}
-            name = row.get("name") or row.get("brewery_name") or row.get("venue_name")
-            city = row.get("city") or row.get("brewery_city") or row.get("venue_city")
-            state = row.get("state_province") or row.get("state") or row.get("province") or row.get("region") or row.get("brewery_state") or row.get("venue_state")
-            country = row.get("country") or row.get("brewery_country") or row.get("venue_country")
-            url = row.get("url") or row.get("website") or row.get("brewery_url")
-            if name and city and (state or country):
-                rows.append({
-                    "name": name, "city": city,
-                    "state_province": state or "", "country": country or "", "url": url or ""
-                })
-    return rows
+def top_n_counts(series, n=5):
+    c = Counter([s for s in series if pd.notna(s) and str(s).strip() != ""])
+    return dict(c.most_common(n))
 
-def list_profiles():
-    items = []
-    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    for p in PROFILES_DIR.glob("*.json"):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            display = data.get("name") or p.stem
-        except Exception:
-            display = p.stem
-        items.append({"file": p.name, "display_name": display, "type": "json"})
-    return sorted(items, key=lambda x: x["display_name"].lower())
+def ensure_dirs():
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(PROFILES_DIR, exist_ok=True)
+
+def load_breweries_df():
+    if not os.path.exists(BREWERIES_CSV):
+        return pd.DataFrame(columns=["Name","City","State_province","Country"])
+    try:
+        df = pd.read_csv(BREWERIES_CSV)
+        cols = {c.lower(): c for c in df.columns}
+        def pick(*names):
+            for n in names:
+                if n in cols:
+                    return cols[n]
+            return None
+
+        name_col = pick("name")
+        city_col = pick("city")
+        state_col = pick("state_province","state","province","state/Province","state_prov".lower())
+        country_col = pick("country")
+        if not all([name_col, city_col, state_col, country_col]):
+            df.rename(columns={name_col or "": "Name",
+                               city_col or "": "City",
+                               state_col or "": "State_province",
+                               country_col or "": "Country"}, inplace=True)
+        else:
+            df = df.rename(columns={name_col: "Name",
+                                    city_col: "City",
+                                    state_col: "State_province",
+                                    country_col: "Country"})
+        df = df.dropna(subset=["Name","City","State_province","Country"])
+        for c in ["Name","City","State_province","Country"]:
+            df[c] = df[c].astype(str).str.strip()
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["Name","City","State_province","Country"])
 
 @app.route("/")
-def index():
-    return render_template("index.html", profiles=list_profiles())
+def home():
+    return render_template("index.html")
 
-@app.route("/profiles")
-def profiles_page():
-    return render_template("profiles.html", profiles=list_profiles())
+@app.get("/api/health")
+def health():
+    return jsonify({"ok": True})
 
-@app.route("/analytics")
-def analytics():
-    return render_template("analytics.html", profiles=list_profiles())
-
-# --- Locations APIs ---
 @app.get("/api/locations/countries")
-def api_countries():
-    rows = load_breweries_rows()
-    countries = sorted({r["country"] or "United States" for r in rows if (r.get("country") or "").strip()})
+def get_countries():
+    df = load_breweries_df()
+    countries = sorted(df["Country"].dropna().unique().tolist())
     if "United States" in countries:
         countries.remove("United States")
         countries = ["United States"] + countries
-    return jsonify(countries)
+    return jsonify({"countries": countries})
 
 @app.get("/api/locations/states")
-def api_states():
-    country = request.args.get("country", "").strip()
-    rows = load_breweries_rows()
-    states = sorted({r["state_province"] for r in rows if (not country or r["country"] == country) and r["state_province"]})
-    return jsonify(states)
+def get_states():
+    country = request.args.get("country", "United States")
+    df = load_breweries_df()
+    if not df.empty:
+        df2 = df[df["Country"].str.lower() == country.lower()]
+        states = sorted(df2["State_province"].dropna().unique().tolist())
+    else:
+        states = []
+    return jsonify({"states": states})
 
 @app.get("/api/locations/cities")
-def api_cities():
-    country = request.args.get("country", "").strip()
-    state = request.args.get("state", "").strip()
-    rows = load_breweries_rows()
-    cities = sorted({r["city"] for r in rows if (not country or r["country"] == country) and (not state or r["state_province"] == state)})
-    return jsonify(cities)
+def get_cities():
+    country = request.args.get("country", "United States")
+    state = request.args.get("state", "")
+    df = load_breweries_df()
+    if not df.empty:
+        sel = (df["Country"].str.lower()==country.lower())
+        if state:
+            sel &= (df["State_province"].str.lower()==state.lower())
+        df2 = df[sel]
+        cities = sorted(df2["City"].dropna().unique().tolist())
+    else:
+        cities = []
+    return jsonify({"cities": cities})
 
-@app.get("/api/locations/venues")
-def api_venues():
-    country = request.args.get("country", "").strip()
-    state = request.args.get("state", "").strip()
-    city = request.args.get("city", "").strip()
-    rows = load_breweries_rows()
-    venues = [r for r in rows if (not country or r["country"] == country) and (not state or r["state_province"] == state) and (not city or r["city"] == city)]
-    venues = sorted(venues, key=lambda v: v["name"].lower())
-    return jsonify(venues)
-
-# --- Profiles APIs ---
-@app.get("/api/profiles")
-def api_profiles():
-    return jsonify(list_profiles())
-
-@app.get("/api/profiles/<filename>")
-def api_profile_detail(filename):
-    path = PROFILES_DIR / filename
-    if not path.exists() or path.suffix.lower() != ".json":
-        return jsonify({"error": "Profile not found"}), 404
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    return jsonify(data)
+@app.get("/api/locations/breweries")
+def get_breweries():
+    country = request.args.get("country", "United States")
+    state = request.args.get("state", "")
+    city = request.args.get("city", "")
+    df = load_breweries_df()
+    breweries = []
+    if not df.empty:
+        sel = (df["Country"].str.lower()==country.lower())
+        if state:
+            sel &= (df["State_province"].str.lower()==state.lower())
+        if city:
+            sel &= (df["City"].str.lower()==city.lower())
+        df2 = df[sel]
+        breweries = sorted(df2["Name"].dropna().unique().tolist())
+    return jsonify({"breweries": breweries})
 
 @app.post("/api/profiles/upload")
-def api_profile_upload():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    file = request.files["file"]
-    display_name = request.form.get("display_name", "").strip() or "Unnamed"
-    safe_basename = secure_filename(display_name.replace(" ", "_"))
-    out_json = PROFILES_DIR / f"{safe_basename}.json"
-    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+def upload_untappd():
+    ensure_dirs()
+    file = request.files.get("file")
+    display_name = request.form.get("display_name","").strip() or "Unnamed"
+    if not file:
+        return jsonify({"error":"No file uploaded"}), 400
 
-    if pd is None:
-        return jsonify({"error": "Pandas not available"}), 500
     try:
-        df = pd.read_csv(file, sep=",", engine="python")
+        df = autodetect_sep_and_read(file)
     except Exception as e:
         return jsonify({"error": f"CSV parse failed: {e}"}), 400
 
-    def col(name):
-        return df[name] if name in df.columns else None
+    lower_map = {c.lower(): c for c in df.columns}
+    def col(*cands):
+        for c in cands:
+            if c in lower_map:
+                return lower_map[c]
+        return None
 
-    # styles
-    styles = {}
-    if col("beer_type") is not None:
-        styles = (df["beer_type"].dropna().astype(str).str.strip().value_counts().head(5)).to_dict()
+    c_beer_type   = col("beer_type")
+    c_brewery     = col("brewery_name")
+    c_brew_city   = col("brewery_city")
+    c_brew_state  = col("brewery_state","brewery_province","brewery_region")
+    c_brew_url    = col("brewery_url")
+    c_abv         = col("beer_abv")
+    c_ibu         = col("beer_ibu")
+    c_rating      = col("rating_score")
+    c_global      = col("global_rating_score","global_weighted_rating_score")
+    c_flavors     = col("flavor_profiles")
 
-    # flavors
-    flavors = {}
-    if col("flavor_profiles") is not None:
-        for s in df["flavor_profiles"].dropna().astype(str):
-            for tok in [t.strip() for t in s.split(",") if t.strip()]:
-                flavors[tok] = flavors.get(tok, 0) + 1
-        flavors = dict(sorted(flavors.items(), key=lambda kv: kv[1], reverse=True)[:5])
+    styles_top5 = top_n_counts(df[c_beer_type]) if c_beer_type else {}
 
-    # helpers
-    def to_float(x):
-        try: return float(x)
-        except: return None
+    from collections import Counter
+    breweries_counts = Counter()
+    brewery_meta = {}
+    if c_brewery:
+        for _, row in df.iterrows():
+            bname = row.get(c_brewery)
+            if pd.isna(bname) or str(bname).strip()=="":
+                continue
+            bname = str(bname).strip()
+            breweries_counts[bname] += 1
+            if bname not in brewery_meta:
+                brewery_meta[bname] = {
+                    "name": bname,
+                    "city": str(row.get(c_brew_city, "") or ""),
+                    "state": str(row.get(c_brew_state, "") or ""),
+                    "url": str(row.get(c_brew_url, "") or ""),
+                }
+    top5_breweries = []
+    for name, cnt in breweries_counts.most_common(5):
+        meta = brewery_meta.get(name, {"name": name, "city":"", "state":"", "url":""})
+        meta["count"] = cnt
+        top5_breweries.append(meta)
 
-    abv_points, ibu_points = [], []
-    for _, r in df.iterrows():
-        abv = to_float(r.get("beer_abv"))
-        ibu = to_float(r.get("beer_ibu"))
-        rating = to_float(r.get("rating_score"))
-        entry = {"beer": str(r.get("beer_name") or "")[:80], "style": str(r.get("beer_type") or ""), "rating": rating}
-        if abv is not None: abv_points.append({**entry, "abv": abv})
-        if ibu is not None: ibu_points.append({**entry, "ibu": ibu})
+    abv_values = [v for v in (safe_float(x) for x in (df[c_abv] if c_abv else [])) if v is not None]
+    ibu_values = [v for v in (safe_float(x) for x in (df[c_ibu] if c_ibu else [])) if v is not None]
 
-    # breweries top 5
-    for colname in ["brewery_name", "brewery_city", "brewery_state", "brewery_url"]:
-        if colname not in df.columns:
-            df[colname] = None
-    g = (df.groupby(["brewery_name","brewery_city","brewery_state","brewery_url"], dropna=False)
-           .size().reset_index(name="count").sort_values("count", ascending=False).head(5))
-    breweries_top = []
-    for _, r in g.iterrows():
-        breweries_top.append({
-            "name": r["brewery_name"] or "",
-            "city": r["brewery_city"] or "",
-            "state": r["brewery_state"] or "",
-            "count": int(r["count"]),
-            "url": r["brewery_url"] or ""
-        })
+    rating_values = [v for v in (safe_float(x) for x in (df[c_rating] if c_rating else [])) if v is not None]
+    global_values = [v for v in (safe_float(x) for x in (df[c_global] if c_global else [])) if v is not None]
+    avg_user = round(sum(rating_values)/len(rating_values), 3) if rating_values else None
+    avg_global = round(sum(global_values)/len(global_values), 3) if global_values else None
 
-    import numpy as np
-    rating_mean = float(np.nanmean(pd.to_numeric(df.get("rating_score", []), errors="coerce"))) if "rating_score" in df else None
-    global_mean = float(np.nanmean(pd.to_numeric(df.get("global_rating_score", []), errors="coerce"))) if "global_rating_score" in df else None
+    deltas = []
+    if c_rating and c_global:
+        for _, row in df.iterrows():
+            u = safe_float(row.get(c_rating))
+            g = safe_float(row.get(c_global))
+            if u is not None and g is not None:
+                deltas.append(u - g)
+    avg_delta = round(sum(deltas)/len(deltas), 3) if deltas else None
+
+    from collections import Counter
+    flavor_counts = Counter()
+    if c_flavors:
+        for s in df[c_flavors].dropna():
+            for token in str(s).split(","):
+                t = token.strip()
+                if t:
+                    flavor_counts[t] += 1
+    top5_flavors = dict(flavor_counts.most_common(5))
 
     result = {
         "name": display_name,
-        "styles": styles,
-        "flavors": flavors,
-        "abv": abv_points,
-        "ibu": ibu_points,
-        "breweries": breweries_top,
+        "styles": styles_top5,
+        "breweries": top5_breweries,
+        "abv_values": abv_values,
+        "ibu_values": ibu_values,
         "ratings": {
-            "mean_rating": round(rating_mean,3) if rating_mean==rating_mean else None,
-            "mean_global": round(global_mean,3) if global_mean==global_mean else None,
-            "n": int(len(df))
-        }
+            "avg_user": avg_user,
+            "avg_global": avg_global,
+            "avg_delta": avg_delta
+        },
+        "flavors": top5_flavors
     }
-    out_json.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    return jsonify({"ok": True, "file": out_json.name, "profile": result})
 
-@app.route("/static/<path:filename>")
+    safe_filename = "".join([c if c.isalnum() or c in ("-", "_") else "_" for c in display_name]) + ".json"
+    out_path = os.path.join(PROFILES_DIR, safe_filename)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    return jsonify(result)
+
+@app.route('/static/<path:filename>')
 def static_files(filename):
-    return send_from_directory((Path(__file__).parent / "static"), filename)
+    return send_from_directory(os.path.join(APP_ROOT, 'static'), filename)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
