@@ -1,0 +1,29 @@
+{
+  "venue": "Thunderhead Brewing Company",
+  "beers": [
+    {
+      "name": "Golden Frau",
+      "style": "Belgian Blonde",
+      "abv": 7.5,
+      "ibu": 12
+    },
+    {
+      "name": "Brother\u2019s Cup",
+      "style": "Belgian Blonde",
+      "abv": 7.5,
+      "ibu": 22
+    },
+    {
+      "name": "Cornstalker",
+      "style": "Dark Wheat",
+      "abv": 5.5,
+      "ibu": 20
+    },
+    {
+      "name": "Prairie Peach",
+      "style": "Fruit Beer",
+      "abv": 4.5,
+      "ibu": 10
+    }
+  ]
+}
