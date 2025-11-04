@@ -1,48 +1,28 @@
-{% extends "base.html" %}
-{% block head %}
-<script src="{{ url_for('static', filename='main.js') }}"></script>
-{% endblock %}
+{% extends \"base.html\" %}
 {% block content %}
-  <h1>Select a Brewery</h1>
-  <p class="muted">Choose Country → State/Province → City → Venue.</p>
-  <div class="row">
-    <select id="country"></select>
-    <select id="state"></select>
-    <select id="city"></select>
-    <select id="venue"></select>
+<section class=\"panel\">
+  <h2>Find Breweries</h2>
+  <p>Select Country → State/Province → City → Venue. Data sourced from <code>data/breweries.csv</code>.</p>
+  <div class=\"grid\">
+    <label>Country
+      <select id=\"country\"></select>
+    </label>
+    <label>State / Province
+      <select id=\"state\"></select>
+    </label>
+    <label>City
+      <select id=\"city\"></select>
+    </label>
+    <label>Venue
+      <select id=\"venue\"></select>
+    </label>
   </div>
-  <div class="card">
-    <div id="chosen" class="muted">No venue selected.</div>
-    <div class="actions" id="links" style="margin-top:10px;"></div>
+
+  <div class=\"actions\">
+    <label>Profile (optional): <input id=\"profile_file\" placeholder=\"Mark_Meyer.json\"></label>
+    <button class=\"btn\" id=\"goMatch\">Beer Match →</button>
   </div>
-  <script>
-    setupBreweryDropdowns().then(()=>{
-      const chosen = document.getElementById('chosen');
-      const links = document.getElementById('links');
-      const vSel = document.getElementById('venue');
-      vSel.addEventListener('change', async ()=>{
-        links.innerHTML = '';
-        const c = document.getElementById('country').value;
-        const s = document.getElementById('state').value;
-        const ci = document.getElementById('city').value;
-        const n = document.getElementById('venue').value;
-        if(!c||!s||!ci||!n){ chosen.textContent='No venue selected.'; return; }
-        const v = await fetch(`/api/venue_detail?country=${encodeURIComponent(c)}&state_province=${encodeURIComponent(s)}&city=${encodeURIComponent(ci)}&name=${encodeURIComponent(n)}`).then(r=>r.json());
-        if(v.error){ chosen.textContent = 'Not found'; return; }
-        chosen.textContent = `${v.name} — ${v.city}, ${v.state_province} (${v.country})`;
-        if(v.website_url){
-          const a = document.createElement('a'); a.href=v.website_url; a.textContent='Visit Website'; a.target='_blank'; a.rel='noopener';
-          links.appendChild(a);
-        }
-        const g = document.createElement('a');
-        if(v.latitude!=null && v.longitude!=null){
-          g.href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(v.latitude+','+v.longitude)}`;
-        } else {
-          g.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.name+' '+v.city+' '+v.state_province)}`;
-        }
-        g.textContent='Get Directions'; g.target='_blank'; g.rel='noopener';
-        links.appendChild(g);
-      });
-    });
-  </script>
+
+  <div id=\"venueInfo\"></div>
+</section>
 {% endblock %}

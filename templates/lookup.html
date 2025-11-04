@@ -1,8 +1,11 @@
-{% extends "base.html" %}
+{% extends \"base.html\" %}
 {% block content %}
-  <h1>Beer Lookup</h1>
-  <p class="muted">For now this page is a placeholder. You can wire it to your local beer_cache.json.</p>
-  <div class="card">
-    <p>Coming soon: Search by beer name, show ABV/IBU/style and image if available.</p>
+<section class=\"panel\">
+  <h2>Beer Lookup</h2>
+  <p>Reads <code>data/beer_cache.json</code> (if present).</p>
+  <div class=\"actions\">
+    <button class=\"btn\" id=\"loadCache\">Load Cache</button>
   </div>
+  <pre id=\"cacheOut\"></pre>
+</section>
 {% endblock %}
