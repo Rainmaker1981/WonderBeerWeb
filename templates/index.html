@@ -1,36 +1,49 @@
+
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <h2>Start here</h2>
-  <p>Follow the steps below to get the best results:</p>
-  <ol class="steps">
-    <li><strong>Select your profile</strong> — upload or choose a tasting profile with your preferred styles and flavors.</li>
-    <li><strong>Find local breweries</strong> — use the State → City → Venue dropdowns to pick where you’re drinking.</li>
-    <li><strong>Match beers to your style</strong> — once a venue is selected, we’ll match their menu to your profile.</li>
-  </ol>
-</section>
+  <article>
+    <h2>Start here</h2>
+    <ol>
+      <li><strong>Select your tasting profile</strong> (or upload a new one).</li>
+      <li><strong>Find local breweries</strong> by Country → State/Province → City → Venue.</li>
+      <li><strong>Match beers to your style</strong> (coming next).</li>
+    </ol>
+  </article>
 
-<section class="cards">
-  <a class="card" href="{{ url_for('profiles') }}">
-    <h3>1) Choose Profile</h3>
-    <p>Upload or pick a saved profile. You can download the sample and edit it.</p>
-  </a>
-  <a class="card" href="{{ url_for('finder') }}">
-    <h3>2) Find Breweries</h3>
-    <p>Pick State → City → Venue from pre-filled data. No typing needed.</p>
-  </a>
-  <a class="card disabled" href="#">
-    <h3>3) Match Beers</h3>
-    <p>Coming from your selected venue. (Hook this to /match in your repo.)</p>
-  </a>
-</section>
+  <section class="grid">
+    <article>
+      <h3>1) Choose a Profile</h3>
+      <label for="profileSelect">Available profiles</label>
+      <select id="profileSelect">
+        {% for p in profiles %}
+          <option value="{{ p.file }}">{{ p.display_name }}</option>
+        {% endfor %}
+      </select>
+      <p class="muted">Need one? Go to <a href="{{ url_for('profiles_page') }}">Profiles</a> to upload Untappd CSV → JSON.</p>
+      <button id="goAnalytics">View Analytics</button>
+    </article>
 
-<section class="tips">
-  <h4>Tips</h4>
-  <ul>
-    <li>Place your <code>breweries.csv</code> in the <code>data/</code> folder (or set the <code>BREWERIES_CSV</code> env var).</li>
-    <li>CSV headers must be: <code>Name, City, State_province</code>.</li>
-    <li>Analytics works out of the box with <code>sample_profile.json</code>.</li>
-  </ul>
-</section>
+    <article>
+      <h3>2) Find Local Breweries</h3>
+      <label>Country</label>
+      <select id="countrySelect"></select>
+
+      <label>State / Province</label>
+      <select id="stateSelect"></select>
+
+      <label>City</label>
+      <select id="citySelect"></select>
+
+      <label>Venue</label>
+      <select id="venueSelect"></select>
+
+      <div id="venueMeta" class="muted"></div>
+    </article>
+
+    <article>
+      <h3>3) Match Beers</h3>
+      <p class="muted">This will weigh your ratings vs global and style preferences against the venue menu.</p>
+      <button class="secondary" disabled>Match (soon)</button>
+    </article>
+  </section>
 {% endblock %}

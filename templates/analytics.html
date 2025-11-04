@@ -1,23 +1,23 @@
+
 {% extends "base.html" %}
 {% block content %}
-<h2>Analytics — {{ profile.get('name', 'Profile') }}</h2>
-<p>Profile source: <code>{{ profile_name }}</code></p>
+  <article>
+    <h2>Analytics</h2>
+    <p>Choose a profile to visualize your preferences.</p>
+    <label for="profileSelect">Profile</label>
+    <select id="profileSelect">
+      {% for p in profiles %}
+        <option value="{{ p.file }}">{{ p.display_name }}</option>
+      {% endfor %}
+    </select>
+  </article>
 
-<div class="grid-2">
-  <div>
-    <h3>Style Preferences</h3>
-    <canvas id="stylesChart" width="400" height="300" aria-label="Style bar chart"></canvas>
-  </div>
-  <div>
-    <h3>Flavor Balance</h3>
-    <canvas id="flavorsChart" width="400" height="300" aria-label="Flavor radar chart"></canvas>
-  </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-  const profile = {{ profile|tojson }};
-</script>
-<script src="{{ url_for('static', filename='js/analytics.js') }}"></script>
+  <section class="grid">
+    <article><canvas id="stylesChart"></canvas></article>
+    <article><canvas id="flavorsChart"></canvas></article>
+    <article><canvas id="abvChart"></canvas></article>
+    <article><canvas id="ibuChart"></canvas></article>
+    <article class="wide"><canvas id="breweriesChart"></canvas></article>
+    <article><div id="ratingSummary"></div></article>
+  </section>
 {% endblock %}

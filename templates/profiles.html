@@ -1,23 +1,33 @@
+
 {% extends "base.html" %}
 {% block content %}
-<h2>Profiles</h2>
-<p>Upload a tasting profile (JSON). Or choose one below.</p>
+  <article>
+    <h2>Profiles</h2>
+    <p>Upload your Untappd export (.csv, semicolon-separated), enter your display name, and generate a WonderBEER JSON profile.</p>
+  </article>
 
-<form class="upload" method="post" enctype="multipart/form-data">
-  <label>Upload profile (.json): <input type="file" name="profile" accept=".json"></label>
-  <button type="submit">Upload</button>
-</form>
+  <section class="grid">
+    <article>
+      <h3>Create a new profile</h3>
+      <form id="uploadForm">
+        <label for="displayName">Display name</label>
+        <input id="displayName" name="display_name" placeholder="Mark Meyer" required />
 
-<h3>Available Profiles</h3>
-<ul class="list">
-  {% for f in files %}
-    <li>
-      <code>{{f}}</code>
-      <a class="btn" href="{{ url_for('analytics', profile=f) }}">View Analytics</a>
-      <a class="btn" href="{{ url_for('download_profile', name=f) }}">Download</a>
-    </li>
-  {% else %}
-    <li>No profiles yet. Upload one above.</li>
-  {% endfor %}
-</ul>
+        <label for="csvFile">Untappd CSV file</label>
+        <input id="csvFile" name="file" type="file" accept=".csv" required />
+
+        <button type="submit">Create JSON Profile</button>
+      </form>
+      <pre id="uploadResult" class="code"></pre>
+    </article>
+
+    <article>
+      <h3>Existing profiles</h3>
+      <ul id="profileList">
+        {% for p in profiles %}
+          <li><a href="{{ url_for('analytics') }}?profile={{ p.file }}">{{ p.display_name }}</a> <small class="muted">({{ p.file }})</small></li>
+        {% endfor %}
+      </ul>
+    </article>
+  </section>
 {% endblock %}
