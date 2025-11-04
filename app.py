@@ -1,238 +1,283 @@
-import os
-import io
-import json
+import os, io, csv, json, math, re
 from collections import Counter, defaultdict
-
-from flask import Flask, jsonify, request, render_template, send_from_directory
+from urllib.parse import urlparse
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
+from flask import Flask, render_template, request, jsonify
 
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(APP_ROOT, "data")
 PROFILES_DIR = os.path.join(DATA_DIR, "profiles")
-BREWERIES_CSV = os.path.join(DATA_DIR, "breweries.csv")
 
 app = Flask(__name__)
 
-def autodetect_sep_and_read(file_storage):
-    sample = file_storage.stream.read(2048).decode(errors="ignore")
-    file_storage.stream.seek(0)
-    sep = ";" if sample.count(";") > sample.count(",") else ","
-    return pd.read_csv(file_storage, sep=sep, engine="python")
+# ------------- helpers -------------
+def breweries_path():
+    return os.path.join(DATA_DIR, "breweries.csv")
 
-def safe_float(x):
-    try:
-        return float(x)
-    except Exception:
-        return None
+def beer_cache_path():
+    return os.path.join(DATA_DIR, "beer_cache.json")
 
-def top_n_counts(series, n=5):
-    c = Counter([s for s in series if pd.notna(s) and str(s).strip() != ""])
-    return dict(c.most_common(n))
+def list_profiles():
+    mapping_path = os.path.join(PROFILES_DIR, "profiles.json")
+    mapping = {}
+    if os.path.exists(mapping_path):
+        with open(mapping_path, encoding="utf-8") as f:
+            mapping = json.load(f)
+    # Include actual jsons found as well
+    for fn in os.listdir(PROFILES_DIR):
+        if fn.endswith(".json"):
+            mapping.setdefault(fn, os.path.splitext(fn)[0].replace("_"," "))
+    return mapping
 
-def ensure_dirs():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(PROFILES_DIR, exist_ok=True)
+def save_profile_mapping(filename, display_name):
+    mapping_path = os.path.join(PROFILES_DIR, "profiles.json")
+    mapping = {}
+    if os.path.exists(mapping_path):
+        with open(mapping_path, encoding="utf-8") as f:
+            mapping = json.load(f)
+    mapping[filename] = display_name
+    with open(mapping_path, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, indent=2)
+
+def parse_untappd_csv(file_bytes):
+    text = file_bytes.decode("utf-8", errors="ignore")
+    # Sniff delimiter (commas typical for Untappd export)
+    sniffer = csv.Sniffer()
+    dialect = sniffer.sniff(text.splitlines()[0] + "\n" + text.splitlines()[1])
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+    rows = list(reader)
+    # Normalize headers
+    def norm(s): return s.strip().lower().replace(' ', '_')
+    rows_norm = [{norm(k):v for k,v in r.items()} for r in rows]
+    return rows_norm
+
+def build_profile_summary(rows):
+    # Expected keys (normalized): beer_name, brewery_name, beer_type, beer_abv, beer_ibu, rating_score, global_rating_score
+    styles = Counter()
+    abvs, ibus, ratings, globals_ = [], [], [], []
+    points_abv_ibu = []
+    for r in rows:
+        bt = r.get("beer_type") or r.get("style") or ""
+        if bt:
+            styles[bt] += 1
+        # numeric fields
+        def to_float(x):
+            try: 
+                if x is None or x == "": 
+                    return None
+                return float(str(x).strip())
+            except: 
+                return None
+        abv = to_float(r.get("beer_abv"))
+        ibu = to_float(r.get("beer_ibu"))
+        rate = to_float(r.get("rating_score"))
+        gr = to_float(r.get("global_rating_score") or r.get("global_weighted_rating_score"))
+        if abv is not None: abvs.append(abv)
+        if ibu is not None: ibus.append(ibu)
+        if rate is not None: ratings.append(rate)
+        if gr is not None: globals_.append(gr)
+        if abv is not None and ibu is not None:
+            points_abv_ibu.append({"x":abv,"y":ibu})
+    summary = {
+        "styles": dict(styles),
+        "abv_mean": sum(abvs)/len(abvs) if abvs else 0.0,
+        "ibu_mean": sum(ibus)/len(ibus) if ibus else 0.0,
+        "rating_mean": sum(ratings)/len(ratings) if ratings else 0.0,
+        "global_rating_mean": sum(globals_)/len(globals_) if globals_ else 0.0,
+        "points_abv_ibu": points_abv_ibu,
+        "top_styles": sorted(styles.items(), key=lambda kv: kv[1], reverse=True)[:5],
+    }
+    return summary
+
+def write_profile_json(display_name, rows):
+    safe = re.sub(r"\W+", "_", display_name).strip("_")
+    filename = f"{safe}.json"
+    path = os.path.join(PROFILES_DIR, filename)
+    summary = build_profile_summary(rows)
+    payload = {"name": display_name, **summary}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    save_profile_mapping(filename, display_name)
+    return filename, payload
 
 def load_breweries_df():
-    if not os.path.exists(BREWERIES_CSV):
-        return pd.DataFrame(columns=["Name","City","State_province","Country"])
+    path = breweries_path()
+    df = pd.read_csv(path)
+    for col in ["country","state_province","city","name","untappd_venue_url"]:
+        if col not in df.columns:
+            df[col] = ""
+    return df
+
+def compute_match(beer, prof):
+    # simple distance from profile means for ABV/IBU, plus style presence bonus
+    abv, ibu, style = beer.get("abv"), beer.get("ibu"), (beer.get("style") or "").strip()
+    abv_m = prof.get("abv_mean") or 0.0
+    ibu_m = prof.get("ibu_mean") or 0.0
+    # normalize distances
+    d_abv = abs((abv or abv_m) - abv_m) / 10.0  # 10% abv window
+    d_ibu = abs((ibu or ibu_m) - ibu_m) / 60.0  # 60 ibu window
+    dist = (d_abv + d_ibu)/2.0
+    base = max(0.0, 1.0 - dist)
+    style_bonus = 0.1 if style in (prof.get("styles") or {}) else 0.0
+    return min(1.0, base + style_bonus)
+
+def try_fetch_untappd_menu(url):
+    if not url: 
+        return None
     try:
-        df = pd.read_csv(BREWERIES_CSV)
-        cols = {c.lower(): c for c in df.columns}
-        def pick(*names):
-            for n in names:
-                if n in cols:
-                    return cols[n]
+        resp = requests.get(url, timeout=10, headers={"User-Agent":"Mozilla/5.0"})
+        if resp.status_code != 200:
             return None
-
-        name_col = pick("name")
-        city_col = pick("city")
-        state_col = pick("state_province","state","province","state/Province","state_prov".lower())
-        country_col = pick("country")
-        if not all([name_col, city_col, state_col, country_col]):
-            df.rename(columns={name_col or "": "Name",
-                               city_col or "": "City",
-                               state_col or "": "State_province",
-                               country_col or "": "Country"}, inplace=True)
-        else:
-            df = df.rename(columns={name_col: "Name",
-                                    city_col: "City",
-                                    state_col: "State_province",
-                                    country_col: "Country"})
-        df = df.dropna(subset=["Name","City","State_province","Country"])
-        for c in ["Name","City","State_province","Country"]:
-            df[c] = df[c].astype(str).str.strip()
-        return df
+        soup = BeautifulSoup(resp.text, "lxml")
+        # Heuristic parsing: look for menu items
+        beers = []
+        for li in soup.select("li.menu-item, div.beer-item, div.menu-item"):
+            name = (li.select_one(".name,.beer-name,h3,h4") or li).get_text(" ", strip=True)
+            style = (li.select_one(".style,.beer-style,.beer-style-name") or None)
+            style = style.get_text(" ", strip=True) if style else None
+            abv = None; ibu = None
+            # ABV/IBU tokens
+            text = li.get_text(" ", strip=True)
+            m = re.search(r"(\d+(?:\.\d+)?)\s*%\s*ABV", text, re.I)
+            if m: abv = float(m.group(1))
+            m = re.search(r"(\d+)\s*IBU", text, re.I)
+            if m: ibu = float(m.group(1))
+            beers.append({"name": name, "style": style, "abv": abv, "ibu": ibu})
+        return beers if beers else None
     except Exception:
-        return pd.DataFrame(columns=["Name","City","State_province","Country"])
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-@app.get("/api/health")
-def health():
-    return jsonify({"ok": True})
-
-@app.get("/api/locations/countries")
-def get_countries():
-    df = load_breweries_df()
-    countries = sorted(df["Country"].dropna().unique().tolist())
-    if "United States" in countries:
-        countries.remove("United States")
-        countries = ["United States"] + countries
-    return jsonify({"countries": countries})
-
-@app.get("/api/locations/states")
-def get_states():
-    country = request.args.get("country", "United States")
-    df = load_breweries_df()
-    if not df.empty:
-        df2 = df[df["Country"].str.lower() == country.lower()]
-        states = sorted(df2["State_province"].dropna().unique().tolist())
-    else:
-        states = []
-    return jsonify({"states": states})
-
-@app.get("/api/locations/cities")
-def get_cities():
-    country = request.args.get("country", "United States")
-    state = request.args.get("state", "")
-    df = load_breweries_df()
-    if not df.empty:
-        sel = (df["Country"].str.lower()==country.lower())
-        if state:
-            sel &= (df["State_province"].str.lower()==state.lower())
-        df2 = df[sel]
-        cities = sorted(df2["City"].dropna().unique().tolist())
-    else:
-        cities = []
-    return jsonify({"cities": cities})
-
-@app.get("/api/locations/breweries")
-def get_breweries():
-    country = request.args.get("country", "United States")
-    state = request.args.get("state", "")
-    city = request.args.get("city", "")
-    df = load_breweries_df()
-    breweries = []
-    if not df.empty:
-        sel = (df["Country"].str.lower()==country.lower())
-        if state:
-            sel &= (df["State_province"].str.lower()==state.lower())
-        if city:
-            sel &= (df["City"].str.lower()==city.lower())
-        df2 = df[sel]
-        breweries = sorted(df2["Name"].dropna().unique().tolist())
-    return jsonify({"breweries": breweries})
-
-@app.post("/api/profiles/upload")
-def upload_untappd():
-    ensure_dirs()
-    file = request.files.get("file")
-    display_name = request.form.get("display_name","").strip() or "Unnamed"
-    if not file:
-        return jsonify({"error":"No file uploaded"}), 400
-
-    try:
-        df = autodetect_sep_and_read(file)
-    except Exception as e:
-        return jsonify({"error": f"CSV parse failed: {e}"}), 400
-
-    lower_map = {c.lower(): c for c in df.columns}
-    def col(*cands):
-        for c in cands:
-            if c in lower_map:
-                return lower_map[c]
         return None
 
-    c_beer_type   = col("beer_type")
-    c_brewery     = col("brewery_name")
-    c_brew_city   = col("brewery_city")
-    c_brew_state  = col("brewery_state","brewery_province","brewery_region")
-    c_brew_url    = col("brewery_url")
-    c_abv         = col("beer_abv")
-    c_ibu         = col("beer_ibu")
-    c_rating      = col("rating_score")
-    c_global      = col("global_rating_score","global_weighted_rating_score")
-    c_flavors     = col("flavor_profiles")
+def load_fallback_menu(venue_name):
+    # simple mapping for demo
+    if "Thunderhead" in (venue_name or ""):
+        path = os.path.join(DATA_DIR, "menus", "thunderhead_sample.json")
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        return d.get("beers", [])
+    return []
 
-    styles_top5 = top_n_counts(df[c_beer_type]) if c_beer_type else {}
+# ------------- routes -------------
+@app.route("/")
+def home():
+    return render_template("home.html")
 
-    from collections import Counter
-    breweries_counts = Counter()
-    brewery_meta = {}
-    if c_brewery:
-        for _, row in df.iterrows():
-            bname = row.get(c_brewery)
-            if pd.isna(bname) or str(bname).strip()=="":
-                continue
-            bname = str(bname).strip()
-            breweries_counts[bname] += 1
-            if bname not in brewery_meta:
-                brewery_meta[bname] = {
-                    "name": bname,
-                    "city": str(row.get(c_brew_city, "") or ""),
-                    "state": str(row.get(c_brew_state, "") or ""),
-                    "url": str(row.get(c_brew_url, "") or ""),
-                }
-    top5_breweries = []
-    for name, cnt in breweries_counts.most_common(5):
-        meta = brewery_meta.get(name, {"name": name, "city":"", "state":"", "url":""})
-        meta["count"] = cnt
-        top5_breweries.append(meta)
+@app.route("/profile", methods=["GET","POST"])
+def profile():
+    if request.method == "POST":
+        name = request.form.get("name","").strip()
+        file = request.files.get("csvfile")
+        if not name or not file:
+            return render_template("profile.html", summary=None)
+        data = file.read()
+        try:
+            rows = parse_untappd_csv(data)
+        except Exception as e:
+            # fallback to comma dialect
+            text = data.decode("utf-8", errors="ignore")
+            reader = csv.DictReader(io.StringIO(text))
+            rows = list(reader)
+            rows = [{k.strip().lower().replace(' ','_'):v for k,v in r.items()} for r in rows]
+        filename, payload = write_profile_json(name, rows)
+        payload["filename"] = filename
+        return render_template("profile.html", summary=payload)
+    return render_template("profile.html", summary=None)
 
-    abv_values = [v for v in (safe_float(x) for x in (df[c_abv] if c_abv else [])) if v is not None]
-    ibu_values = [v for v in (safe_float(x) for x in (df[c_ibu] if c_ibu else [])) if v is not None]
+@app.route("/finder")
+def finder():
+    profiles = list_profiles().items()
+    return render_template("finder.html", profiles=profiles)
 
-    rating_values = [v for v in (safe_float(x) for x in (df[c_rating] if c_rating else [])) if v is not None]
-    global_values = [v for v in (safe_float(x) for x in (df[c_global] if c_global else [])) if v is not None]
-    avg_user = round(sum(rating_values)/len(rating_values), 3) if rating_values else None
-    avg_global = round(sum(global_values)/len(global_values), 3) if global_values else None
+@app.get("/api/countries")
+def api_countries():
+    df = load_breweries_df()
+    countries = sorted([c for c in df["country"].dropna().unique().tolist() if str(c).strip()])
+    return jsonify(countries)
 
-    deltas = []
-    if c_rating and c_global:
-        for _, row in df.iterrows():
-            u = safe_float(row.get(c_rating))
-            g = safe_float(row.get(c_global))
-            if u is not None and g is not None:
-                deltas.append(u - g)
-    avg_delta = round(sum(deltas)/len(deltas), 3) if deltas else None
+@app.get("/api/states")
+def api_states():
+    country = request.args.get("country","")
+    df = load_breweries_df()
+    subset = df[df["country"]==country] if country else df
+    states = sorted([s for s in subset["state_province"].dropna().unique().tolist() if str(s).strip()])
+    return jsonify(states)
 
-    from collections import Counter
-    flavor_counts = Counter()
-    if c_flavors:
-        for s in df[c_flavors].dropna():
-            for token in str(s).split(","):
-                t = token.strip()
-                if t:
-                    flavor_counts[t] += 1
-    top5_flavors = dict(flavor_counts.most_common(5))
+@app.get("/api/cities")
+def api_cities():
+    country = request.args.get("country","")
+    state = request.args.get("state","")
+    df = load_breweries_df()
+    if country:
+        df = df[df["country"]==country]
+    if state:
+        df = df[df["state_province"]==state]
+    cities = sorted([c for c in df["city"].dropna().unique().tolist() if str(c).strip()])
+    return jsonify(cities)
 
-    result = {
-        "name": display_name,
-        "styles": styles_top5,
-        "breweries": top5_breweries,
-        "abv_values": abv_values,
-        "ibu_values": ibu_values,
-        "ratings": {
-            "avg_user": avg_user,
-            "avg_global": avg_global,
-            "avg_delta": avg_delta
-        },
-        "flavors": top5_flavors
-    }
+@app.get("/api/venues")
+def api_venues():
+    country = request.args.get("country","")
+    state = request.args.get("state","")
+    city = request.args.get("city","")
+    df = load_breweries_df()
+    if country:
+        df = df[df["country"]==country]
+    if state:
+        df = df[df["state_province"]==state]
+    if city:
+        df = df[df["city"]==city]
+    venues = df[["name","city","state_province","untappd_venue_url"]].to_dict(orient="records")
+    return jsonify(venues)
 
-    safe_filename = "".join([c if c.isalnum() or c in ("-", "_") else "_" for c in display_name]) + ".json"
-    out_path = os.path.join(PROFILES_DIR, safe_filename)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
+@app.route("/match")
+def match():
+    venue = request.args.get("venue","")
+    profile_json = request.args.get("profile_json","")
+    profile_obj = None
+    if profile_json:
+        ppath = os.path.join(PROFILES_DIR, profile_json)
+        if os.path.exists(ppath):
+            with open(ppath, encoding="utf-8") as f:
+                profile_obj = json.load(f)
+    # find URL for venue
+    df = load_breweries_df()
+    row = None
+    if venue:
+        sub = df[df["name"]==venue]
+        if not sub.empty:
+            row = sub.iloc[0].to_dict()
+    url = (row or {}).get("untappd_venue_url")
+    beers = try_fetch_untappd_menu(url) or load_fallback_menu(venue)
+    # compute matches
+    if profile_obj:
+        for b in beers:
+            b["match"] = compute_match(b, profile_obj)
+    else:
+        for b in beers:
+            b["match"] = 0.0
+    return render_template("match.html", venue_name=venue, profile_name=(profile_obj or {}).get("name"), beers=beers)
 
-    return jsonify(result)
-
-@app.route('/static/<path:filename>')
-def static_files(filename):
-    return send_from_directory(os.path.join(APP_ROOT, 'static'), filename)
-
+@app.route("/lookup")
+def lookup():
+    q = request.args.get("q","").strip()
+    result = None
+    result_name = q
+    if q:
+        with open(beer_cache_path(), encoding="utf-8") as f:
+            cache = json.load(f)
+        # try exact, then case-insensitive
+        if q in cache:
+            result = cache[q]
+            result_name = q
+        else:
+            # ci scan
+            for k,v in cache.items():
+                if k.lower() == q.lower():
+                    result = v
+                    result_name = k
+                    break
+    return render_template("lookup.html", result=result, result_name=result_name)
+    
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True)

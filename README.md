@@ -1,53 +1,40 @@
-# WonderBEER (Flask demo)
+# WonderBeerDemo
 
-A local Flask demo for your WonderBEER web app vision. It supports:
-- Uploading a taste profile CSV (user + global preferences with weights)
-- Searching sample breweries (local CSV)
-- Viewing a sample menu for a brewery
-- Matching beers using a weighted score: `score = user_pref * mean(user_weight) + (global_rating_norm) * mean(global_weight)`
+A portfolio-friendly Flask demo that:
+1) Ingests your Untappd CSV and builds a profile JSON used for analytics.
+2) Lets you find breweries via Country → State/Province → City → Venue dropdowns.
+3) Fetches a brewery menu (from Untappd when available, with a local fallback) and computes “match %” vs your profile.
+4) Looks up beers from a local `beer_cache.json`, and if missing, attempts a live fetch.
 
-## Quickstart
+## Quickstart (local)
 
 ```bash
-cd wonderbeer_web
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py
+export FLASK_APP=app.py    # Windows PowerShell: $env:FLASK_APP="app.py"
+flask run
 ```
 
-Then open http://127.0.0.1:5000
+Open http://127.0.0.1:5000/
 
-## Files
+## Deploy (Render)
+- Set **Start Command**: `gunicorn app:app --bind 0.0.0.0:$PORT`
+- Ensure build has Python 3.12+ and installs `requirements.txt`.
+- Make sure `data/` is committed so the app has CSVs/JSONs at boot.
 
-- `app.py` — Flask server and routes
-- `templates/` — Jinja templates (base, index, profile, breweries, match)
-- `static/styles.css` — Light, modern UI
-- `data/breweries_sample.csv` — Local fallback list of breweries
-- `data/sample_menu.csv` — Sample beer menus keyed by `brewery_id`
-- `data/sample_profile.csv` — Example profile for testing
-- `uploads/profile.csv` — Your active profile after upload
+## Data
+- `data/breweries.csv` — sample cascading dataset with Country/State/City/Venue (Name).
+- `data/beer_cache.json` — sample beer info cache by beer name.
+- `data/profiles/` — holds generated profile JSONs (from Untappd CSV uploads).
 
-## Your Profile CSV
+## Pages
+- **/** Home: guided flow.
+- **/profile**: upload Untappd CSV, enter your name → builds `<name>.json`.
+- **/finder**: country/state/city/venue dropdowns (prefilled from `breweries.csv`).
+- **/match**: uses selected venue & chosen profile to compute matches from a live Untappd menu (with fallback sample).
+- **/lookup**: shows details for a beer from `beer_cache.json` (with optional live fetch).
 
-Expected columns:
-- `style` — e.g., "American IPA", "Pilsner"
-- `user_rating` — your taste (0–5)
-- `global_rating` — optional average rating (0–5)
-- `user_weight` — weight to apply to your rating (e.g., 1.0)
-- `global_weight` — weight to apply to global rating (e.g., 0.6)
-
-You can download the sample from **Profile → Download Sample** in the app.
-
-## Extend Next
-
-- Replace sample data with real brewery sources (OpenBreweryDB CSV) and real menus.
-- Add scraping/parsing module for brewery menus (Untappd or on‑site pages) — store beers by `brewery_id`.
-- Persist user sessions and multiple profiles.
-- Add geosearch for "near me" using city/state/ZIP.
-- Improve scoring (include ABV/IBU ranges, seasonal preference, time‑of‑day mood sliders).
-- Export results as CSV or shareable link.
+## Notes
+- Live Untappd fetching is best-effort HTML parsing and may change if their markup changes.
+- If a venue has no Untappd menu URL, the demo uses a local sample menu in `data/menus/`.
