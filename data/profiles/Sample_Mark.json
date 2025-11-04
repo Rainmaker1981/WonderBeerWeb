@@ -12,34 +12,8 @@
     "Crisp": 3,
     "Fruity": 2
   },
-  "abv": [
-    {
-      "beer": "Test IPA",
-      "style": "IPA",
-      "rating": 4.0,
-      "abv": 6.8
-    }
-  ],
-  "ibu": [
-    {
-      "beer": "Test IPA",
-      "style": "IPA",
-      "rating": 4.0,
-      "ibu": 62
-    }
-  ],
-  "breweries": [
-    {
-      "name": "Thunderhead",
-      "city": "Kearney",
-      "state": "Nebraska",
-      "count": 7,
-      "url": "https://www.thunderheadbrewing.com/"
-    }
-  ],
-  "ratings": {
-    "mean_rating": 3.85,
-    "mean_global": 3.64,
-    "n": 123
-  }
+  "abv_mean": 5.8,
+  "ibu_mean": 25.0,
+  "rating_mean": 3.4,
+  "global_rating_mean": 3.55
 }
