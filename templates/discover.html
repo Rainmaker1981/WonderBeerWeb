@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>2) Find Breweries</h2>
+<div class="card">
+  <div class="grid">
+    <div>
+      <label>Country</label>
+      <select id="country"></select>
+    </div>
+    <div>
+      <label>State/Province</label>
+      <select id="state"></select>
+    </div>
+    <div>
+      <label>City</label>
+      <select id="city"></select>
+    </div>
+    <div>
+      <label>Venue</label>
+      <select id="venue"></select>
+    </div>
+  </div>
+  <button id="toMatch" class="btn">Beer Match →</button>
+</div>
+
+<h3>Results</h3>
+<ul id="venueList"></ul>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => window.WB.initDiscover());
+</script>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>4) Beer Lookup</h2>
+<form action="{{ url_for('beer_lookup') }}" method="get" class="card">
+  <label>Beer name</label>
+  <input type="text" name="q" placeholder="Search in beer_cache.json">
+  <button class="btn">Search</button>
+</form>
+
+{% if items %}
+  <h3>Results</h3>
+  <ul>
+  {% for b in items %}
+    <li><strong>{{ b.get('name') }}</strong> — {{ b.get('style','') }} | ABV: {{ b.get('abv','') }} | IBU: {{ b.get('ibu','') }}</li>
+  {% endfor %}
+  </ul>
+{% elif q %}
+  <p>No results in cache for <em>{{ q }}</em>.</p>
+{% endif %}
+{% endblock %}

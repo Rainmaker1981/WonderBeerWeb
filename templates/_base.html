@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WonderBeer Demo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/site.css') }}">
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="logo">🍺 WonderBeer Demo</div>
+        <div class="small">A portfolio-friendly beer matcher</div>
+        <div style="margin-left:auto"><a class="btn" href="{{ url_for('home') }}">Home</a></div>
+      </div>
+      {% block body %}{% endblock %}
+    </div>
+    <script src="{{ url_for('static', filename='js/site.js') }}"></script>
+  </body>
+</html>

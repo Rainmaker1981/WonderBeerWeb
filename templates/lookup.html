@@ -1,0 +1,23 @@
+{% extends "_base.html" %}
+{% block body %}
+  <div class="card">
+    <h1>Beer Lookup</h1>
+    <form method="get">
+      <label>Beer Name</label>
+      <input type="text" name="q" placeholder="Golden Frau" value="{{ request.args.get('q','') }}">
+      <button class="btn primary" type="submit">Search</button>
+    </form>
+  </div>
+  {% if result %}
+  <div class="card">
+    <h2>{{ result_name }}</h2>
+    <p><b>Brewery:</b> {{ result.brewery }}<br>
+       <b>Style:</b> {{ result.style }}<br>
+       <b>ABV:</b> {{ result.abv }}% &nbsp; <b>IBU:</b> {{ result.ibu }}<br>
+       <b>Global Rating:</b> {{ result.global_rating }}</p>
+    {% if result.untappd_url %}<a class="btn" target="_blank" href="{{ result.untappd_url }}">View on Untappd</a>{% endif %}
+  </div>
+  {% elif request.args.get('q') %}
+  <div class="card">No result found locally for <b>{{ request.args.get('q') }}</b>. (Live lookup not run in demo environment.)</div>
+  {% endif %}
+{% endblock %}

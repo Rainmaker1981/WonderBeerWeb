@@ -1,37 +1,49 @@
-{% extends "base.html" %}
-{% block content %}
-<div class="card">
-  <h2>Your Taste Profile</h2>
-  {% if profile_exists %}
-    <p class="kicker">Active profile: <span class="badge">uploads/profile.csv</span></p>
-    <table>
-      <thead>
-        <tr><th>Style</th><th>User Rating</th><th>Global Rating</th><th>User Weight</th><th>Global Weight</th></tr>
-      </thead>
-      <tbody>
-        {% for row in profile_preview %}
-          <tr>
-            <td>{{ row.style }}</td>
-            <td>{{ row.user_rating }}</td>
-            <td>{{ row.global_rating }}</td>
-            <td>{{ row.user_weight }}</td>
-            <td>{{ row.global_weight }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="kicker">No profile uploaded yet. Use the form below or <a href="{{ url_for('download_sample_profile') }}">download a sample</a>.</p>
-  {% endif %}
-</div>
+{% extends "_base.html" %}
+{% block head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+{% block body %}
+  <div class="card">
+    <h1>Build Your Tasting Profile</h1>
+    <form action="{{ url_for('profile') }}" method="post" enctype="multipart/form-data">
+      <div class="grid cols-2">
+        <div>
+          <label>Your Name</label>
+          <input type="text" name="name" placeholder="Mark Meyer" required>
+        </div>
+        <div>
+          <label>Untappd CSV</label>
+          <input type="file" name="csvfile" accept=".csv" required>
+        </div>
+      </div>
+      <p class="small">We’ll parse: Beer Name, Brewery, Beer Type, ABV, IBU, Rating, Global Rating.</p>
+      <button class="btn primary" type="submit">Create Profile JSON</button>
+    </form>
+  </div>
 
-<div class="card">
-  <h3>Upload/Replace Profile (CSV)</h3>
-  <form action="{{ url_for('upload_profile') }}" method="post" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".csv" required>
-    <p class="kicker">Expected columns: style, user_rating, global_rating, user_weight, global_weight</p>
-    <button class="btn primary" type="submit">Upload</button>
-    <a class="btn" href="{{ url_for('download_sample_profile') }}">Download Sample</a>
-  </form>
-</div>
+  {% if summary %}
+  <div class="card">
+    <h2>Summary for {{ summary.name }}</h2>
+    <div class="grid cols-2">
+      <div>
+        <p><b>Avg ABV:</b> {{ '%.2f'|format(summary.abv_mean) }}% &nbsp; <b>Avg IBU:</b> {{ '%.1f'|format(summary.ibu_mean) }}</p>
+        <p><b>Your Avg Rating:</b> {{ '%.2f'|format(summary.rating_mean) }} &nbsp; <b>Global Avg:</b> {{ '%.2f'|format(summary.global_rating_mean) }}</p>
+        <hr>
+        <p><b>Top Styles</b></p>
+        <ul class="list">
+          {% for style, cnt in summary.top_styles %}
+          <li>{{ style }} — {{ cnt }}</li>
+          {% endfor %}
+        </ul>
+        <p class="small">Saved to <code>data/profiles/{{ summary.filename }}</code></p>
+      </div>
+      <div>
+        <canvas id="chartAbvIbu" height="220"></canvas>
+        <br>
+        <canvas id="chartRatings" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+  <script>renderProfileCharts({{ summary|tojson }});</script>
+  {% endif %}
 {% endblock %}

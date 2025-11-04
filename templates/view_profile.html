@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Profile: {{ prof_name }}</h2>
+<pre class="pre">{{ prof_json | tojson(indent=2) }}</pre>
+<a class="btn" href="{{ url_for('discover_page') }}">Next: Find Breweries</a>
+{% endblock %}

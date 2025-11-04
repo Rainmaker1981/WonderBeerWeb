@@ -1,97 +1,20 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WonderBEER — Profiles • Breweries • Match</title>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 0; }
-      header { padding: 16px 20px; background: #111; color: #fff; }
-      main { padding: 20px; max-width: 1100px; margin: 0 auto; }
-      .section { border: 1px solid #e3e3e3; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-      h2 { margin: 0 0 12px; }
-      label { display:block; font-weight: 600; margin: 8px 0 4px; }
-      input[type="text"], select { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid #cfcfcf; }
-      input[type="file"] { margin-top: 6px; }
-      button { padding: 10px 14px; border-radius: 10px; border: 1px solid #111; background:#111; color:#fff; cursor: pointer; }
-      button:disabled { opacity: .6; cursor: not-allowed; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-      .hint { color: #555; font-size: 0.95rem; }
-      .stack { display:flex; flex-direction: column; gap:12px; }
-      .pill { display:inline-block; padding: 4px 10px; border-radius: 999px; background: #f3f3f3; margin: 3px 6px 0 0; font-size:.9rem;}
-      .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-      .muted { color:#666; }
-      .inline { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
-      .callout { background:#f8f9ff; border:1px solid #dfe3ff; padding:10px 12px; border-radius:10px; }
-      .success { background:#f6fff8; border:1px solid #b7f5c7; }
-      .error { background:#fff7f7; border:1px solid #ffd3d3; }
-      footer { color:#666; font-size:.9rem; padding: 8px 20px 24px; }
-      @media (max-width: 800px){
-        .row { grid-template-columns: 1fr; }
-        .grid { grid-template-columns: 1fr; }
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <strong>WonderBEER</strong> — pick a profile → find breweries → match beers
-    </header>
-    <main>
-      <div class="section">
-        <h2>1) Upload your tasting profile (Untappd export)</h2>
-        <p class="hint">Upload your Untappd <span class="mono">.csv</span> (comma or semicolon works), enter a display name, then click “Create JSON Profile”. We’ll compute your top styles, favorite breweries, ABV/IBU lists, and rating deltas.</p>
-        <div class="row">
-          <div>
-            <label for="display_name">Display name</label>
-            <input type="text" id="display_name" placeholder="e.g., Mark Meyer" />
-            <label for="untappd_csv">Untappd CSV</label>
-            <input type="file" id="untappd_csv" accept=".csv,text/csv" />
-            <div class="inline" style="margin-top:10px;">
-              <button id="btn_create">Create JSON Profile</button>
-              <span id="upload_status" class="muted"></span>
-            </div>
-          </div>
-          <div>
-            <div id="profile_preview" class="callout muted">No profile yet. Upload to preview your stats.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <h2>2) Find local breweries</h2>
-        <p class="hint">Start broad and narrow down: Country → State/Province → City → Venue.</p>
-        <div class="grid">
-          <div>
-            <label for="country">Country</label>
-            <select id="country"></select>
-          </div>
-          <div>
-            <label for="state">State / Province</label>
-            <select id="state"></select>
-          </div>
-          <div>
-            <label for="city">City</label>
-            <select id="city"></select>
-          </div>
-          <div>
-            <label for="brewery">Venue</label>
-            <select id="brewery"></select>
-          </div>
-        </div>
-        <div class="hint" style="margin-top:8px;">Don’t see options? Make sure <span class="mono">data/breweries.csv</span> exists on your server with columns: <span class="mono">Name, City, State_province, Country</span>.</div>
-      </div>
-
-      <div class="section">
-        <h2>3) Match beers to your style</h2>
-        <p class="hint">Coming next: we’ll use your ratings + global ratings + style weighting to choose what to drink at the selected venue.</p>
-        <button disabled>Match (soon)</button>
-      </div>
-
-      <footer>
-        <div class="muted">Tip: Ensure your breweries list is present at <span class="mono">/data/breweries.csv</span>. Profiles saved to <span class="mono">/data/profiles/&lt;name&gt;.json</span>.</div>
-      </footer>
-    </main>
-    <script src="/static/main.js"></script>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h2>Welcome</h2>
+  <ol class="flow">
+    <li><strong>Select or create your profile</strong> (upload Untappd CSV; we build analytics JSON).</li>
+    <li><strong>Find local breweries</strong> via Country → State/Province → City → Venue dropdowns.</li>
+    <li><strong>Match beers</strong> at a venue: paste the Untappd venue URL to fetch its live menu and score it.</li>
+    <li><strong>Beer lookup</strong> from <code>beer_cache.json</code> (and live backup for a single beer page).</li>
+  </ol>
+</section>
+<section>
+  <h3>Quick actions</h3>
+  <p>
+    <a class="btn" href="{{ url_for('profile_page') }}">Upload Profile</a>
+    <a class="btn" href="{{ url_for('discover_page') }}">Find Breweries</a>
+    <a class="btn" href="{{ url_for('match_page') }}">Match at Venue</a>
+  </p>
+</section>
+{% endblock %}
