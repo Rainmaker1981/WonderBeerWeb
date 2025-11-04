@@ -1,0 +1,1 @@
+Place a fresh breweries.csv here before deploying. Required columns: name,city,state_province,country,website_url,longitude,latitude
