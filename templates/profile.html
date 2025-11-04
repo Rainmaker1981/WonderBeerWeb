@@ -1,27 +1,25 @@
-{% extends \"base.html\" %}
+{% extends "base.html" %}
 {% block content %}
-<section class=\"panel\">
-  <h2>Upload Tasting Profile</h2>
-  <form action=\"{{ url_for('profile_upload') }}\" method=\"post\" enctype=\"multipart/form-data\">
-    <label>Display Name<br><input type=\"text\" name=\"display_name\" placeholder=\"Mark Meyer\" required></label>
-    <label>Untappd CSV Export<br><input type=\"file\" name=\"csv_file\" accept=\".csv\" required></label>
-    <button class=\"btn\" type=\"submit\">Create Profile JSON</button>
-  </form>
-</section>
+<h2>Upload Untappd CSV → Build Profile JSON</h2>
+<form action="{{ url_for('profile') }}" method="post" enctype="multipart/form-data" class="card">
+  <label for="display_name">Display Name</label>
+  <input id="display_name" name="display_name" type="text" placeholder="Mark Meyer" required>
+  <label for="csv_file">Untappd Export (CSV)</label>
+  <input id="csv_file" name="csv_file" type="file" accept=".csv" required>
+  <button type="submit">Create Profile</button>
+</form>
 
-<section class=\"panel\">
-  <h2>Existing Profiles</h2>
-  {% if profiles %}
-  <table class=\"table\">
-    <thead><tr><th>Name</th><th>File</th></tr></thead>
-    <tbody>
-      {% for p in profiles %}
-      <tr><td>{{p.name}}</td><td>{{p.file}}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p>No profiles yet.</p>
-  {% endif %}
-</section>
+{% if profile_json %}
+  <h3>Created:</h3>
+  <pre class="code">{{ profile_json|tojson(indent=2) }}</pre>
+{% endif %}
+
+{% if profiles %}
+  <h3>Existing Profiles</h3>
+  <ul>
+    {% for p in profiles %}
+      <li>{{ p }}</li>
+    {% endfor %}
+  </ul>
+{% endif %}
 {% endblock %}

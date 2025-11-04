@@ -1,28 +1,36 @@
-{% extends \"base.html\" %}
+{% extends "base.html" %}
 {% block content %}
-<section class=\"panel\">
-  <h2>Find Breweries</h2>
-  <p>Select Country → State/Province → City → Venue. Data sourced from <code>data/breweries.csv</code>.</p>
-  <div class=\"grid\">
-    <label>Country
-      <select id=\"country\"></select>
-    </label>
-    <label>State / Province
-      <select id=\"state\"></select>
-    </label>
-    <label>City
-      <select id=\"city\"></select>
-    </label>
-    <label>Venue
-      <select id=\"venue\"></select>
-    </label>
+<h2>Select a Brewery</h2>
+<div class="grid-2">
+  <div class="card">
+    <label for="country">Country</label>
+    <select id="country"></select>
+
+    <label for="state">State / Province</label>
+    <select id="state"></select>
+
+    <label for="city">City</label>
+    <select id="city"></select>
+
+    <label for="venue">Venue</label>
+    <select id="venue"></select>
+
+    <div class="actions">
+      <button id="goMatch">Beer Match →</button>
+    </div>
   </div>
 
-  <div class=\"actions\">
-    <label>Profile (optional): <input id=\"profile_file\" placeholder=\"Mark_Meyer.json\"></label>
-    <button class=\"btn\" id=\"goMatch\">Beer Match →</button>
+  <div class="card">
+    <h3>Venues</h3>
+    <div id="venueList" class="list"></div>
   </div>
+</div>
 
-  <div id=\"venueInfo\"></div>
-</section>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.WB && WB.initBreweriesPage) {
+    WB.initBreweriesPage();
+  }
+});
+</script>
 {% endblock %}

@@ -1,20 +1,37 @@
-{% extends \"base.html\" %}
+{% extends "base.html" %}
 {% block content %}
-<section class=\"panel\">
-  <h2>Beer Match</h2>
-  <p>Venue: <strong>{{ venue }}</strong> — {{ city }}, {{ state }}, {{ country }}</p>
-  <div class=\"actions\">
-    <button class=\"btn\" id=\"runMatch\">Fetch Menu & Score</button>
-  </div>
-  <div id=\"matchResults\">Loading…</div>
-</section>
-<script>
-  const args = {
-    country: \"{{ country }}\",
-    state: \"{{ state }}\",
-    city: \"{{ city }}\",
-    venue: \"{{ venue }}\",
-    profile_file: \"{{ profile_file }}\"
-  };
-</script>
+<h2>Beer Match</h2>
+<form class="card" method="get" action="{{ url_for('match') }}">
+  <label for="venue_query">Venue name (as on Untappd)</label>
+  <input id="venue_query" name="venue" value="{{ request.args.get('venue','') }}" placeholder="Thunderhead Brewing Company">
+  <label for="profile_name">Profile JSON filename (in data/profiles)</label>
+  <input id="profile_name" name="profile" value="{{ request.args.get('profile','') }}" placeholder="Mark_Meyer_Beer_Data.json">
+  <button type="submit">Fetch Menu & Score</button>
+</form>
+
+{% if error %}
+  <div class="alert">{{ error }}</div>
+{% endif %}
+
+{% if menu and results %}
+  <h3>Results</h3>
+  <table class="table">
+    <thead>
+      <tr><th>Beer</th><th>Style</th><th>ABV</th><th>IBU</th><th>Score</th></tr>
+    </thead>
+    <tbody>
+    {% for row in results %}
+      <tr>
+        <td>{{ row.beer_name }}</td>
+        <td>{{ row.beer_type }}</td>
+        <td>{{ row.abv }}</td>
+        <td>{{ row.ibu }}</td>
+        <td>{{ "%.0f%%"|format(row.match_score * 100) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p>Provide a venue and profile, then submit to see matches.</p>
+{% endif %}
 {% endblock %}

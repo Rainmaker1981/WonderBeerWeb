@@ -1,12 +1,12 @@
-{% extends \"base.html\" %}
+{% extends "base.html" %}
 {% block content %}
-<section class=\"panel\">
-  <h2>Getting Started</h2>
-  <ol>
-    <li><strong>Upload your Untappd CSV</strong> and generate a tasting profile → <a class=\"btn\" href=\"{{ url_for('profile_page') }}\">Go to Profile</a></li>
-    <li><strong>Find local breweries</strong> by Country → State/Province → City → Venue → <a class=\"btn\" href=\"{{ url_for('breweries_page') }}\">Find Breweries</a></li>
-    <li><strong>Match beers</strong> on that venue’s menu using your profile.</li>
+<section class="hero">
+  <h2>Pick your path</h2>
+  <ol class="steps">
+    <li><strong>Load Profile:</strong> Upload your Untappd CSV on the <a href="{{ url_for('profile') }}">Profile</a> page to create <code>name.json</code>.</li>
+    <li><strong>Choose Brewery:</strong> Go to <a href="{{ url_for('breweries') }}">Breweries</a> and pick Country → State/Province → City → Venue.</li>
+    <li><strong>Match Beers:</strong> Use <a href="{{ url_for('match') }}">Match</a> to compare the venue menu with your profile.</li>
   </ol>
-  <p>Optionally, use <a href=\"{{ url_for('lookup_page') }}\">Beer Lookup</a> to fetch details from a local cache.</p>
+  <p>Or <a href="{{ url_for('lookup') }}">lookup a beer</a> from the local cache.</p>
 </section>
 {% endblock %}

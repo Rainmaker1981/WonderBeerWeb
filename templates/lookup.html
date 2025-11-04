@@ -1,11 +1,25 @@
-{% extends \"base.html\" %}
+{% extends "base.html" %}
 {% block content %}
-<section class=\"panel\">
-  <h2>Beer Lookup</h2>
-  <p>Reads <code>data/beer_cache.json</code> (if present).</p>
-  <div class=\"actions\">
-    <button class=\"btn\" id=\"loadCache\">Load Cache</button>
-  </div>
-  <pre id=\"cacheOut\"></pre>
-</section>
+<h2>Beer Lookup</h2>
+<form class="card" method="get" action="{{ url_for('lookup') }}">
+  <label for="beer_query">Beer name</label>
+  <input id="beer_query" name="q" value="{{ request.args.get('q','') }}" placeholder="Golden Frau">
+  <button type="submit">Search</button>
+</form>
+
+{% if items is not none %}
+  {% if items %}
+    <ul class="beers">
+      {% for b in items %}
+        <li>
+          <strong>{{ b.get('name') }}</strong>
+          <div>{{ b.get('style','') }}</div>
+          <small>ABV: {{ b.get('abv','?') }} | IBU: {{ b.get('ibu','?') }}</small>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No matches in cache.</p>
+  {% endif %}
+{% endif %}
 {% endblock %}
