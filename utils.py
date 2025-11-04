@@ -1,99 +1,93 @@
-import csv, json
-from collections import Counter
-from typing import Dict, Any, List
+# utils.py
+import io, csv, json, statistics
 
-def parse_untappd_csv(csv_file, display_name:str) -> Dict[str, Any]:
-    reader = csv.DictReader((line.replace('\ufeff','') for line in csv_file))
-    needed = {"beer_name","brewery_name","beer_type","beer_abv","beer_ibu","rating_score","global_rating_score"}
-    missing = [c for c in needed if c not in reader.fieldnames]
-    if missing:
-        raise ValueError(f"CSV missing required columns: {missing}. Got: {reader.fieldnames}")
+UNTAPPD_FIELDS = {
+    "beer_name","brewery_name","beer_type","beer_abv","beer_ibu",
+    "rating_score","global_rating_score","brewery_city","brewery_state"
+}
 
-    styles, breweries = Counter(), Counter()
-    abv_values: List[float] = []
-    ibu_values: List[float] = []
-    rating_values: List[float] = []
-    deltas: List[float] = []
-    samples: List[Dict[str, Any]] = []
+def _text_from_filestorage(fs) -> str:
+    """Return text from a Flask FileStorage or file-like/path."""
+    # 1) get raw bytes
+    if hasattr(fs, "read"):            # FileStorage or file-like
+        data = fs.read()
+    elif hasattr(fs, "stream"):        # sometimes .stream exists
+        data = fs.stream.read()
+    elif isinstance(fs, (bytes, bytearray)):
+        data = bytes(fs)
+    elif isinstance(fs, str):
+        # path on disk
+        with open(fs, "rb") as f:
+            data = f.read()
+    else:
+        raise TypeError("Unsupported file object")
 
-    def to_float(x):
-        try: return float(x)
-        except: return None
+    # If we were given text already, convert to bytes first
+    if isinstance(data, str):
+        data = data.encode("utf-8", "ignore")
 
-    for row in reader:
-        style = (row.get("beer_type") or "").strip()
-        styles[style] += 1
-        breweries[(row.get("brewery_name") or "").strip()] += 1
+    # 2) decode to text (handle BOM + fallbacks)
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("latin-1", errors="ignore")
 
-        abv = to_float(row.get("beer_abv"))
-        ibu = to_float(row.get("beer_ibu"))
-        rating = to_float(row.get("rating_score"))
-        global_rating = to_float(row.get("global_rating_score"))
+def iter_untappd_rows(file_obj):
+    """Yield DictReader rows from Untappd export regardless of upload mode."""
+    text = _text_from_filestorage(file_obj)
+    sio = io.StringIO(text, newline="")  # csv needs text stream
+    reader = csv.DictReader(sio)
+    yield from reader
 
-        if abv is not None: abv_values.append(abv)
-        if ibu is not None: ibu_values.append(ibu)
-        if rating is not None: rating_values.append(rating)
-        if rating is not None and global_rating is not None:
-            deltas.append(rating - global_rating)
+def build_profile_from_untappd(file_obj, display_name: str) -> dict:
+    # Parse rows
+    rows = list(iter_untappd_rows(file_obj))
 
-        if len(samples) < 30:
-            samples.append({
-                "beer_name": row.get("beer_name",""),
-                "brewery_name": row.get("brewery_name",""),
-                "beer_type": style,
-                "beer_abv": abv,
-                "beer_ibu": ibu,
-                "rating_score": rating,
-                "global_rating_score": global_rating,
-            })
+    # Extract analytics
+    import collections
+    styles = collections.Counter()
+    breweries = collections.Counter()
+    abvs, ibus, ratings, global_ratings = [], [], [], []
 
-    def top_n(counter: Counter, n=5):
-        return [{"label": k, "count": int(v)} for k, v in counter.most_common(n)]
+    for r in rows:
+        bt = (r.get("beer_type") or "").strip()
+        if bt: styles[bt] += 1
+
+        bn = (r.get("brewery_name") or "").strip()
+        if bn: breweries[bn] += 1
+
+        # numeric fields
+        def f(x):
+            try: return float(str(x).strip())
+            except: return None
+
+        a = f(r.get("beer_abv"))
+        i = f(r.get("beer_ibu"))
+        rs = f(r.get("rating_score"))
+        gr = f(r.get("global_rating_score"))
+
+        if a is not None: abvs.append(a)
+        if i is not None: ibus.append(i)
+        if rs is not None: ratings.append(rs)
+        if gr is not None: global_ratings.append(gr)
+
+    def avg(lst): 
+        return round(statistics.fmean(lst), 2) if lst else None
 
     profile = {
-        "name": display_name,
+        "name": display_name.strip() or "Unnamed",
         "summary": {
-            "total_checkins": sum(styles.values()),
-            "avg_abv": round(sum(abv_values)/len(abv_values),2) if abv_values else None,
-            "avg_ibu": round(sum(ibu_values)/len(ibu_values),1) if ibu_values else None,
-            "avg_rating": round(sum(rating_values)/len(rating_values),2) if rating_values else None,
-            "avg_rating_delta": round(sum(deltas)/len(deltas),3) if deltas else None,
+            "avg_abv": avg(abvs),
+            "avg_ibu": avg(ibus),
+            "avg_rating": avg(ratings),
+            "avg_global_rating": avg(global_ratings),
+            "top_styles": styles.most_common(5),
+            "top_breweries": breweries.most_common(5),
+            "total_checkins": len(rows),
         },
-        "top_styles": top_n(styles, 5),
-        "top_breweries": top_n(breweries, 5),
-        "samples": samples,
     }
     return profile
 
-def compute_match_score(profile:Dict[str,Any], beer:Dict[str,Any]) -> float:
-    style = (beer.get("beer_type") or "").lower()
-    abv = beer.get("beer_abv")
-    ibu = beer.get("beer_ibu")
-
-    # Style weight from profile
-    style_weight = 0.0
-    top_styles = profile.get("top_styles",[])
-    if style:
-        for i, s in enumerate(top_styles):
-            label = (s.get("label") or "").lower()
-            if label and label in style:
-                style_weight = max(style_weight, (len(top_styles) - i) / len(top_styles))
-
-    avg_abv = (profile.get("summary") or {}).get("avg_abv")
-    avg_ibu = (profile.get("summary") or {}).get("avg_ibu")
-    abv_score = 0.0
-    ibu_score = 0.0
-    try:
-        if abv is not None and avg_abv is not None:
-            abv_score = max(0.0, 1.0 - abs(float(abv) - float(avg_abv)) / 6.0)
-    except: pass
-    try:
-        if ibu is not None and avg_ibu is not None:
-            ibu_score = max(0.0, 1.0 - abs(float(ibu) - float(avg_ibu)) / 40.0)
-    except: pass
-
-    bias = (profile.get("summary") or {}).get("avg_rating_delta") or 0.0
-    bias_norm = max(0.0, min(1.0, 0.5 + bias))
-
-    score = 0.5*style_weight + 0.25*abv_score + 0.2*ibu_score + 0.05*bias_norm
-    return round(100*score, 1)
+def save_profile_json(profile: dict, path: str):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(profile, f, ensure_ascii=False, indent=2)
