@@ -1,0 +1,15 @@
+{
+  "name": "Sample Mark",
+  "styles": {
+    "IPA": 4,
+    "Stout": 3,
+    "Pilsner": 2,
+    "Sour": 1
+  },
+  "flavors": {
+    "Hoppy": 4,
+    "Roasty": 2,
+    "Crisp": 3,
+    "Fruity": 2
+  }
+}
