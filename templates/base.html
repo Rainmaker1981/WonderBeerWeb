@@ -4,25 +4,84 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>WonderBEER Web</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+      :root {
+        --bg:#0f1115;
+        --panel:#171a21;
+        --accent:#ffd166;
+        --text:#e6e6e6;
+        --muted:#a1a1a1;
+        --link:#8ecae6;
+      }
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{
+        margin:0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background:linear-gradient(180deg, #0f1115 0%, #0b0d12 100%);
+        color:var(--text);
+      }
+      header{
+        position:sticky; top:0; z-index:10;
+        background:rgba(15,17,21,.8);
+        backdrop-filter: blur(10px);
+        border-bottom:1px solid #22262f;
+      }
+      .container{max-width:1100px; margin:0 auto; padding:16px;}
+      .brand{
+        display:flex; align-items:center; gap:12px; font-weight:700;
+        letter-spacing:.5px;
+      }
+      .brand-badge{
+        width:32px; height:32px; border-radius:10px;
+        background: radial-gradient(circle at 30% 30%, var(--accent), #fca311);
+        display:grid; place-items:center; color:#111; font-weight:900;
+        box-shadow: 0 2px 10px rgba(0,0,0,.35);
+      }
+      nav{
+        display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;
+      }
+      nav a{
+        text-decoration:none; color:var(--text);
+        padding:10px 14px; border:1px solid #232733;
+        border-radius:10px; background:linear-gradient(180deg,#171a21,#141820);
+        transition:.15s ease-in-out; font-size:14px;
+      }
+      nav a:hover{ transform:translateY(-1px); border-color:#2b2f3b; }
+      nav a.active{ border-color:var(--accent); color:var(--accent); }
+      main .panel{
+        background:linear-gradient(180deg,#171a21,#151922);
+        border:1px solid #232733; border-radius:14px; padding:22px;
+        box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      }
+      footer{ color:var(--muted); font-size:13px; padding:20px 0; text-align:center; }
+      .spacer{height:10px}
+    </style>
   </head>
   <body>
-    <header class="wb-header">
-      <h1>WonderBEER</h1>
-      <nav>
-        <a href="{{ url_for('index') }}">Home</a>
-        <a href="{{ url_for('profile') }}">Profile</a>
-        <a href="{{ url_for('breweries') }}">Breweries</a>
-        <a href="{{ url_for('match') }}">Match</a>
-        <a href="{{ url_for('lookup') }}">Lookup</a>
-      </nav>
+    <header>
+      <div class="container">
+        <div class="brand">
+          <div class="brand-badge">WB</div>
+          <div>WonderBEER Web</div>
+        </div>
+        <nav>
+          <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint=='index' else '' }}">Home</a>
+          <a href="{{ url_for('profile_page') }}" class="{{ 'active' if request.endpoint=='profile_page' else '' }}">Profile</a>
+          <a href="{{ url_for('breweries_page') }}" class="{{ 'active' if request.endpoint=='breweries_page' else '' }}">Breweries</a>
+          <a href="{{ url_for('match_page') }}" class="{{ 'active' if request.endpoint=='match_page' else '' }}">Match</a>
+          <a href="{{ url_for('lookup_page') }}" class="{{ 'active' if request.endpoint=='lookup_page' else '' }}">Lookup</a>
+        </nav>
+      </div>
     </header>
-    <main class="wb-main">
-      {% block content %}{% endblock %}
-    </main>
-    <footer class="wb-footer">
-      <p>© {{ 2025 }} WonderBEER (Demo)</p>
+    <div class="spacer"></div>
+    <div class="container">
+      <main class="panel">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+    <footer>
+      <div class="container">© {{  now().year if now is defined else '2025' }} WonderBEER • Demo build</div>
     </footer>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   </body>
 </html>
