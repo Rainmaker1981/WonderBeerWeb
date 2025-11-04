@@ -1,0 +1,7 @@
+
+main.container { margin-top: 1rem; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.grid .wide { grid-column: span 3; }
+@media (max-width: 1024px) { .grid { grid-template-columns: 1fr; } .grid .wide { grid-column: auto; } }
+.muted { color: #666; }
+.code { background: #111; color: #9f9; padding: .5rem; border-radius: .5rem; overflow:auto; }
