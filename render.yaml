@@ -1,11 +1,7 @@
 services:
   - type: web
-    name: wonderbeer-demo
+    name: wonderbeerweb
     env: python
-    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     autoDeploy: true
-    envVars:
-      - key: DATA_DIR
-        value: data

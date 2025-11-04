@@ -1,35 +1,70 @@
-from typing import List, Dict, Any
-import requests
+import requests, re
+from typing import List, Dict
 from bs4 import BeautifulSoup
-import re
 
-def fetch_untappd_menu(venue_url:str) -> List[Dict[str,Any]]:
+def fetch_venue_menu(venue_name: str, city: str, state: str, country: str) -> List[Dict]:
+    query = " ".join([venue_name, city, state, country]).strip()
+    if not query: return []
+    search_url = "https://www.bing.com/search"
     try:
-        r = requests.get(venue_url, timeout=15)
-        r.raise_for_status()
+        resp = requests.get(search_url, params={"q": f"site:untappd.com {query}"}, timeout=10)
+        resp.raise_for_status()
     except Exception:
         return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    beers = []
-    for li in soup.select("li.menu-item"):
-        name = (li.select_one(".name") or li.select_one(".beer-name") or li.find("h3"))
-        style = (li.select_one(".style") or li.select_one(".beer-style"))
-        abv = (li.select_one(".abv") or li.find(string=lambda x: x and "ABV" in x))
-        ibu = (li.select_one(".ibu") or li.find(string=lambda x: x and "IBU" in x))
-
-        rec = {
-            "beer_name": name.get_text(strip=True) if name else None,
-            "beer_type": style.get_text(strip=True) if style else None,
-            "beer_abv": None,
-            "beer_ibu": None,
-        }
-        if abv:
-            m = re.search(r"(\d+(?:\.\d+)?)\s*%\s*ABV", str(abv))
-            if m: rec["beer_abv"] = float(m.group(1))
-        if ibu:
-            m = re.search(r"(\d+)\s*IBU", str(ibu))
-            if m: rec["beer_ibu"] = float(m.group(1))
-        if rec["beer_name"]:
-            beers.append(rec)
+    soup = BeautifulSoup(resp.text, "lxml")
+    venue_link=None
+    for a in soup.select("a"):
+        href = a.get("href","")
+        if "untappd.com/v/" in href:
+            venue_link = href; break
+    if not venue_link:
+        return []
+    try:
+        v = requests.get(venue_link, timeout=12)
+        v.raise_for_status()
+    except Exception:
+        return []
+    vsoup = BeautifulSoup(v.text, "lxml")
+    beers=[]
+    for li in vsoup.select("li.menu-item, li[data-menu-item], div.menu-item"):
+        name_el = li.select_one(".beer-name, .name, .beer, h4")
+        name = name_el.get_text(strip=True) if name_el else None
+        style_el = li.select_one(".style, .beer-style, .caps")
+        style = style_el.get_text(strip=True) if style_el else None
+        txt = li.get_text(" ", strip=True)
+        abv = None; ibu=None
+        mabv = re.search(r"(\\d+(?:\\.\\d+)?)\\s*%\\s*ABV", txt, re.I)
+        if mabv:
+            try: abv=float(mabv.group(1))
+            except: pass
+        mibu = re.search(r"(\\d+)\\s*IBU", txt, re.I)
+        if mibu:
+            try: ibu=float(mibu.group(1))
+            except: pass
+        if name:
+            beers.append({"name":name,"style":style,"abv":abv,"ibu":ibu})
+    if beers: return beers
+    for row in vsoup.select("ul.menu-section-list li, div.beer-info"):
+        txt = row.get_text(" ", strip=True)
+        name=None
+        name_el = row.select_one(".beer-name, .name, h4")
+        if name_el: name=name_el.get_text(strip=True)
+        else:
+            tag=row.find(["strong","b"])
+            name = tag.get_text(strip=True) if tag else None
+        style=None
+        for cls in (".style",".beer-style",".caps"):
+            el=row.select_one(cls)
+            if el: style = el.get_text(strip=True); break
+        abv=None; ibu=None
+        mabv = re.search(r"(\\d+(?:\\.\\d+)?)\\s*%\\s*ABV", txt, re.I)
+        if mabv:
+            try: abv=float(mabv.group(1))
+            except: pass
+        mibu = re.search(r"(\\d+)\\s*IBU", txt, re.I)
+        if mibu:
+            try: ibu=float(mibu.group(1))
+            except: pass
+        if name:
+            beers.append({"name":name,"style":style,"abv":abv,"ibu":ibu})
     return beers

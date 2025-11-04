@@ -1,40 +1,26 @@
-# WonderBeerDemo
+# WonderBeerWeb (Portfolio Demo)
 
-A portfolio-friendly Flask demo that:
-1) Ingests your Untappd CSV and builds a profile JSON used for analytics.
-2) Lets you find breweries via Country → State/Province → City → Venue dropdowns.
-3) Fetches a brewery menu (from Untappd when available, with a local fallback) and computes “match %” vs your profile.
-4) Looks up beers from a local `beer_cache.json`, and if missing, attempts a live fetch.
+A three-step demo:
+1) **Upload Profile**: Import your Untappd CSV and generate a tasting profile.
+2) **Find Breweries**: Filter by Country → State/Province → City → Venue using `breweries.csv`.
+3) **Match Beers**: Pull a venue's Untappd menu and score matches to your profile.
+4) **Beer Lookup**: Look up beers via local `beer_cache.json`, or attempt Untappd fetch.
 
-## Quickstart (local)
-
+## Run locally
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-export FLASK_APP=app.py    # Windows PowerShell: $env:FLASK_APP="app.py"
-flask run
+export FLASK_ENV=development
+python app.py
+# or
+gunicorn app:app --bind 0.0.0.0:8000
 ```
 
-Open http://127.0.0.1:5000/
+## Required data files
+- Place a current **breweries.csv** into `data/breweries.csv`. The app will auto-create `data/breweries_cache.json` on first request.
+  Kept columns: name, city, state_province, country, website_url, longitude, latitude
+- Optional **beer_cache.json** into `data/beer_cache.json`.
+- Uploaded profiles are saved to `data/profiles/<Your_Name>.json`.
 
-## Deploy (Render)
-- Set **Start Command**: `gunicorn app:app --bind 0.0.0.0:$PORT`
-- Ensure build has Python 3.12+ and installs `requirements.txt`.
-- Make sure `data/` is committed so the app has CSVs/JSONs at boot.
-
-## Data
-- `data/breweries.csv` — sample cascading dataset with Country/State/City/Venue (Name).
-- `data/beer_cache.json` — sample beer info cache by beer name.
-- `data/profiles/` — holds generated profile JSONs (from Untappd CSV uploads).
-
-## Pages
-- **/** Home: guided flow.
-- **/profile**: upload Untappd CSV, enter your name → builds `<name>.json`.
-- **/finder**: country/state/city/venue dropdowns (prefilled from `breweries.csv`).
-- **/match**: uses selected venue & chosen profile to compute matches from a live Untappd menu (with fallback sample).
-- **/lookup**: shows details for a beer from `beer_cache.json` (with optional live fetch).
-
-## Notes
-- Live Untappd fetching is best-effort HTML parsing and may change if their markup changes.
-- If a venue has no Untappd menu URL, the demo uses a local sample menu in `data/menus/`.
+## Render
+- Uses `render.yaml` with Gunicorn start command.

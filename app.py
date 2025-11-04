@@ -1,183 +1,140 @@
-import csv, json, os, threading
+import os, json, csv
 from pathlib import Path
-from flask import Flask, jsonify, request, render_template, redirect, url_for, abort
-from utils import parse_untappd_csv, compute_match_score
-from untappd_scraper import fetch_untappd_menu
+from flask import Flask, request, render_template, redirect, url_for, jsonify, flash
+
+from utils import build_breweries_cache, parse_untappd_csv, compute_match_score
+
+APP_ROOT = Path(__file__).parent.resolve()
+DATA_DIR = APP_ROOT / "data"
+PROFILES_DIR = DATA_DIR / "profiles"
+BREWERIES_CSV = DATA_DIR / "breweries.csv"
+BREWERIES_CACHE = DATA_DIR / "breweries_cache.json"
+BEER_CACHE_JSON = DATA_DIR / "beer_cache.json"
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 
-DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
-CSV_PATH = DATA_DIR / "breweries.csv"
-INDEX_PATH = Path(os.environ.get("BREWERIES_INDEX_PATH", "/tmp/breweries_index.json"))
-PROFILES_DIR = DATA_DIR / "profiles"
+def ensure_breweries_cache():
+    if not BREWERIES_CSV.exists():
+        return False
+    if (not BREWERIES_CACHE.exists()) or (BREWERIES_CSV.stat().st_mtime > BREWERIES_CACHE.stat().st_mtime):
+        rows=[]
+        with open(BREWERIES_CSV, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                rows.append({
+                    "name": r.get("name"),
+                    "city": r.get("city"),
+                    "state_province": r.get("state_province"),
+                    "country": r.get("country"),
+                    "website_url": r.get("website_url"),
+                    "longitude": r.get("longitude"),
+                    "latitude": r.get("latitude"),
+                })
+        tree = build_breweries_cache(rows)
+        BREWERIES_CACHE.write_text(json.dumps(tree, ensure_ascii=False, indent=2), encoding="utf-8")
+    return True
 
-_init_lock = threading.Lock()
-_initialized = False
-_index_mem = {}
+def load_breweries_cache():
+    if ensure_breweries_cache() and BREWERIES_CACHE.exists():
+        return json.loads(BREWERIES_CACHE.read_text(encoding="utf-8"))
+    return {}
 
-def build_breweries_index(csv_path: Path, out_path: Path) -> dict:
-    wanted = {"name","city","state_province","country","website_url","longitude","latitude"}
-    venues = []
-    countries = {}
-    if not csv_path.exists():
-        index = {"venues": [], "index": {}}
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(index), encoding="utf-8")
-        return index
-
-    with csv_path.open(newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            rec = {k: (row.get(k) or "").strip() for k in wanted}
-            for coord in ("longitude","latitude"):
-                v = rec.get(coord, "")
-                try:
-                    rec[coord] = float(v) if v not in ("", None) else None
-                except ValueError:
-                    rec[coord] = None
-            venues.append(rec)
-            country = rec["country"] or "Unknown"
-            state = rec["state_province"] or "Unknown"
-            city = rec["city"] or "Unknown"
-            name = rec["name"] or "Unknown"
-            countries.setdefault(country, {}).setdefault(state, {}).setdefault(city, []).append(name)
-    index = {"venues": venues, "index": countries}
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
-    return index
-
-def _load_or_build_index():
-    if INDEX_PATH.exists():
-        return json.loads(INDEX_PATH.read_text(encoding="utf-8"))
-    return build_breweries_index(CSV_PATH, INDEX_PATH)
-
-def init_once():
-    global _initialized, _index_mem
-    if _initialized: return
-    with _init_lock:
-        if _initialized: return
-        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        _index_mem = _load_or_build_index()
-        _initialized = True
-
-@app.before_request
-def _ensure():
-    init_once()
+def load_beer_cache():
+    if BEER_CACHE_JSON.exists():
+        try: return json.loads(BEER_CACHE_JSON.read_text(encoding="utf-8"))
+        except: return {}
+    return {}
 
 @app.get("/")
-def landing():
-    return render_template("home.html")
+def index():
+    return render_template("index.html")
 
 @app.get("/profile")
-def profile():
-    return render_template("profile.html")
-
-# app.py (inside the POST handler for profile upload)
-from utils import build_profile_from_untappd, save_profile_json
-import os
+def profile_page():
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    profiles=[]
+    for p in PROFILES_DIR.glob("*.json"):
+        try:
+            data=json.loads(p.read_text(encoding="utf-8"))
+            profiles.append({"file": p.name, "name": data.get("name")})
+        except: pass
+    return render_template("profile.html", profiles=profiles)
 
 @app.post("/profile/upload")
 def profile_upload():
-    from utils import parse_untappd_csv
-    display_name = request.form.get("display_name", "").strip() or "Profile"
-    file = request.files.get("file")
-    if not file:
-        return ("No CSV file uploaded.", 400)
-    try:
-        # the parser now reads bytes safely
-        profile = parse_untappd_csv(file, display_name)
-    except Exception as e:
-        return (f"CSV parse error: {e}", 400)
-
-    safe_name = display_name.replace(" ", "_")
-    out_path = PROFILES_DIR / f"{safe_name}.json"
+    file = request.files.get("csv_file")
+    display_name = request.form.get("display_name","").strip() or "Unnamed"
+    if not file or file.filename=="":
+        flash("Please choose a CSV file to upload.")
+        return redirect(url_for("profile_page"))
+    profile = parse_untappd_csv(file.stream, display_name)
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = PROFILES_DIR / f"{display_name.replace(' ','_')}.json"
     out_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-    return redirect(url_for("profile_view", name=safe_name))
-
-
-@app.get("/profile/<name>")
-def profile_view(name):
-    p = PROFILES_DIR / f"{name}.json"
-    if not p.exists():
-        abort(404)
-    return render_template("profile_view.html", profile_json=p.read_text(encoding="utf-8"))
+    flash(f"Profile saved: {out_path.name}")
+    return redirect(url_for("profile_page"))
 
 @app.get("/breweries")
-def breweries():
+def breweries_page():
     return render_template("breweries.html")
 
-@app.get("/api/countries")
-def api_countries():
-    return jsonify(sorted(list(_index_mem.get("index", {}).keys())))
-
-@app.get("/api/states")
-def api_states():
-    country = request.args.get("country","")
-    return jsonify(sorted(list(_index_mem.get("index",{}).get(country,{ }).keys())))
-
-@app.get("/api/cities")
-def api_cities():
-    country = request.args.get("country","")
-    state = request.args.get("state_province","")
-    return jsonify(sorted(list(_index_mem.get("index",{}).get(country,{}).get(state,{}).keys())))
-
-@app.get("/api/venues")
-def api_venues():
-    country = request.args.get("country","")
-    state = request.args.get("state_province","")
-    city = request.args.get("city","")
-    venues = _index_mem.get("index",{}).get(country,{}).get(state,{}).get(city,[])
-    return jsonify(sorted(venues))
-
-@app.get("/api/venue_detail")
-def api_venue_detail():
-    country = request.args.get("country","")
-    state = request.args.get("state_province","")
-    city = request.args.get("city","")
-    name = request.args.get("name","")
-    for v in _index_mem.get("venues", []):
-        if v.get("country")==country and v.get("state_province")==state and v.get("city")==city and v.get("name")==name:
-            return jsonify(v)
-    return jsonify({"error":"not found"}), 404
+@app.get("/api/breweries")
+def api_breweries():
+    return jsonify(load_breweries_cache())
 
 @app.get("/match")
 def match_page():
-    return render_template("match.html")
+    country = request.args.get("country","")
+    state = request.args.get("state","")
+    city = request.args.get("city","")
+    venue = request.args.get("venue","")
+    profile_file = request.args.get("profile","")
+    return render_template("match.html", country=country, state=state, city=city, venue=venue, profile_file=profile_file)
 
 @app.post("/match/run")
 def match_run():
-    profile_slug = request.form.get("profile_slug","").strip()
-    venue_url = request.form.get("venue_url","").strip()
-    if not profile_slug or not venue_url:
-        return abort(400, "profile and venue_url are required.")
-    p = PROFILES_DIR / f"{profile_slug}.json"
-    if not p.exists():
-        return abort(400, "Profile JSON not found.")
-    profile = json.loads(p.read_text(encoding="utf-8"))
-    menu = fetch_untappd_menu(venue_url)
-    results = []
-    for beer in menu:
-        score = compute_match_score(profile, beer)
-        out = beer.copy()
-        out["match"] = score
-        results.append(out)
-    results.sort(key=lambda x: x.get("match",0.0), reverse=True)
-    return render_template("match_results.html", profile_name=profile.get("name","Profile"), venue_url=venue_url, results=results)
+    payload = request.get_json(force=True)
+    country = payload.get("country","")
+    state = payload.get("state","")
+    city = payload.get("city","")
+    venue = payload.get("venue","")
+    profile_file = payload.get("profile_file","")
+
+    profile={}
+    if profile_file:
+        p = PROFILES_DIR / profile_file
+        if p.exists():
+            try: profile = json.loads(p.read_text(encoding="utf-8"))
+            except: profile = {}
+
+    from untappd_scraper import fetch_venue_menu
+    menu = fetch_venue_menu(venue, city, state, country)
+
+    beer_cache = load_beer_cache()
+
+    for b in menu:
+        b["match_score"] = compute_match_score(profile, b, beer_cache_lookup=beer_cache)
+
+    menu.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+    return jsonify({"results": menu, "profile": profile})
 
 @app.get("/lookup")
 def lookup_page():
     return render_template("lookup.html")
 
-@app.get("/api/health")
-def api_health():
-    return jsonify({
-        "ok": True,
-        "initialized": _initialized,
-        "csv_exists": CSV_PATH.exists(),
-        "venues_count": len(_index_mem.get("venues",[])),
-        "profiles": sorted([p.name for p in PROFILES_DIR.glob("*.json")])
-    })
+@app.get("/api/beer_cache")
+def api_beer_cache():
+    return jsonify(load_beer_cache())
+
+@app.get("/map")
+def map_redirect():
+    lat = request.args.get("lat"); lon = request.args.get("lon"); q = request.args.get("q","Brewery")
+    if lat and lon:
+        from flask import redirect
+        return redirect(f"https://www.google.com/maps/search/?api=1&query={lat}%2C{lon}")
+    from flask import redirect
+    return redirect(f"https://www.google.com/maps/search/{q}")
 
 if __name__ == "__main__":
-    init_once()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT","5000")), debug=True)
