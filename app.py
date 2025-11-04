@@ -72,20 +72,28 @@ def landing():
 def profile():
     return render_template("profile.html")
 
+# app.py (inside the POST handler for profile upload)
+from utils import build_profile_from_untappd, save_profile_json
+import os
+
 @app.post("/profile/upload")
 def profile_upload():
-    display_name = request.form.get("display_name","").strip() or "Profile"
-    file = request.files.get("file")
-    if not file:
-        return abort(400, "No CSV file uploaded.")
-    try:
-        profile = parse_untappd_csv(file.stream, display_name)
-    except Exception as e:
-        return abort(400, f"CSV parse error: {e}")
-    safe_name = display_name.replace(" ","_")
-    out_path = PROFILES_DIR / f"{safe_name}.json"
-    out_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
-    return redirect(url_for("profile_view", name=safe_name))
+    file = request.files.get("csv_file")
+    display_name = request.form.get("display_name", "").strip()
+    if not file or not display_name:
+        return ("CSV file and display name are required.", 400)
+
+    profile = build_profile_from_untappd(file, display_name)
+    os.makedirs("data/profiles", exist_ok=True)
+    out_path = os.path.join("data/profiles", f"{display_name}.json")
+    save_profile_json(profile, out_path)
+
+    # Rewind the file if you need to reuse it later
+    try: file.seek(0)
+    except: pass
+
+    return render_template("profile_view.html", profile=profile, saved_path=out_path)
+
 
 @app.get("/profile/<name>")
 def profile_view(name):
