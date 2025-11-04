@@ -1,49 +1,13 @@
-{% extends "_base.html" %}
-{% block head %}
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-{% endblock %}
-{% block body %}
-  <div class="card">
-    <h1>Build Your Tasting Profile</h1>
-    <form action="{{ url_for('profile') }}" method="post" enctype="multipart/form-data">
-      <div class="grid cols-2">
-        <div>
-          <label>Your Name</label>
-          <input type="text" name="name" placeholder="Mark Meyer" required>
-        </div>
-        <div>
-          <label>Untappd CSV</label>
-          <input type="file" name="csvfile" accept=".csv" required>
-        </div>
-      </div>
-      <p class="small">We’ll parse: Beer Name, Brewery, Beer Type, ABV, IBU, Rating, Global Rating.</p>
-      <button class="btn primary" type="submit">Create Profile JSON</button>
-    </form>
-  </div>
-
-  {% if summary %}
-  <div class="card">
-    <h2>Summary for {{ summary.name }}</h2>
-    <div class="grid cols-2">
-      <div>
-        <p><b>Avg ABV:</b> {{ '%.2f'|format(summary.abv_mean) }}% &nbsp; <b>Avg IBU:</b> {{ '%.1f'|format(summary.ibu_mean) }}</p>
-        <p><b>Your Avg Rating:</b> {{ '%.2f'|format(summary.rating_mean) }} &nbsp; <b>Global Avg:</b> {{ '%.2f'|format(summary.global_rating_mean) }}</p>
-        <hr>
-        <p><b>Top Styles</b></p>
-        <ul class="list">
-          {% for style, cnt in summary.top_styles %}
-          <li>{{ style }} — {{ cnt }}</li>
-          {% endfor %}
-        </ul>
-        <p class="small">Saved to <code>data/profiles/{{ summary.filename }}</code></p>
-      </div>
-      <div>
-        <canvas id="chartAbvIbu" height="220"></canvas>
-        <br>
-        <canvas id="chartRatings" height="220"></canvas>
-      </div>
+{% extends "base.html" %}
+{% block content %}
+  <h1>Upload Untappd CSV</h1>
+  <form method="post" action="{{ url_for('profile_upload') }}" enctype="multipart/form-data" class="card">
+    <label for="display_name">Display name</label>
+    <input type="text" id="display_name" name="display_name" placeholder="e.g., Mark Meyer">
+    <label for="file">Untappd CSV file</label>
+    <input type="file" id="file" name="file" accept=".csv" required>
+    <div style="margin-top:12px;">
+      <button type="submit">Create Profile</button>
     </div>
-  </div>
-  <script>renderProfileCharts({{ summary|tojson }});</script>
-  {% endif %}
+  </form>
 {% endblock %}

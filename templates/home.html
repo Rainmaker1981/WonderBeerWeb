@@ -1,25 +1,35 @@
-{% extends "_base.html" %}
-{% block body %}
-  <div class="grid cols-3">
+{% extends "base.html" %}
+{% block content %}
+  <h1>WonderBEER — Demo Flow</h1>
+  <div class="grid">
     <div class="card">
-      <h2>1) Create your tasting profile</h2>
-      <p class="small">Upload your Untappd CSV, enter your name, and we’ll extract styles, ABV/IBU, and rating trends.</p>
-      <a class="btn primary" href="{{ url_for('profile') }}">Build Profile</a>
+      <h2>1) Create Your Profile</h2>
+      <p class="muted">Upload your Untappd CSV and generate a lightweight tasting profile for analytics and matching.</p>
+      <a href="{{ url_for('profile') }}">Go to Profile</a>
     </div>
     <div class="card">
-      <h2>2) Find local breweries</h2>
-      <p class="small">Filter by Country → State/Province → City → Venue. Uses the included <code>breweries.csv</code>.</p>
-      <a class="btn primary" href="{{ url_for('finder') }}">Open Finder</a>
+      <h2>2) Find a Brewery</h2>
+      <p class="muted">Use Country → State/Province → City → Venue dropdowns. Includes website & 'Get Directions' link.</p>
+      <a href="{{ url_for('breweries') }}">Go to Breweries</a>
     </div>
     <div class="card">
-      <h2>3) Match beers to your style</h2>
-      <p class="small">Fetch a venue menu and compute “match %” against your tasting profile.</p>
-      <a class="btn primary" href="{{ url_for('match') }}">Go to Match</a>
+      <h2>3) Match Beers</h2>
+      <p class="muted">Enter the venue's Untappd menu URL and your profile to get a ranked list of beer matches.</p>
+      <a href="{{ url_for('match_page') }}">Go to Match</a>
+    </div>
+    <div class="card">
+      <h2>4) Lookup Beers</h2>
+      <p class="muted">(Optional) Browse the local beer cache by name.</p>
+      <a href="{{ url_for('lookup_page') }}">Go to Lookup</a>
     </div>
   </div>
-  <div class="card">
-    <h2>4) Beer Lookup</h2>
-    <p class="small">Quickly view beer details from the local cache. If missing, we’ll try a live lookup.</p>
-    <a class="btn" href="{{ url_for('lookup') }}">Open Lookup</a>
+  <div class="card" style="margin-top:16px;">
+    <h3>Health</h3>
+    <pre id="health" class="muted">Loading…</pre>
   </div>
+  <script>
+    fetch("/api/health").then(r=>r.json()).then(j=>{
+      document.getElementById("health").textContent = JSON.stringify(j, null, 2);
+    });
+  </script>
 {% endblock %}

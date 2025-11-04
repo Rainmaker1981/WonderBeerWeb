@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+  {% set profile = (profile_json | loadjson) %}
+  <h1>Profile</h1>
+  <div class="card">
+    <h2>{{ profile.name }}</h2>
+    <div>
+      <span class="pill">Check-ins: {{ profile.summary.total_checkins }}</span>
+      <span class="pill">Avg ABV: {{ profile.summary.avg_abv }}</span>
+      <span class="pill">Avg IBU: {{ profile.summary.avg_ibu }}</span>
+      <span class="pill">Avg Rating: {{ profile.summary.avg_rating }}</span>
+      <span class="pill">Avg Δ Rating: {{ profile.summary.avg_rating_delta }}</span>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top:16px;">
+    <div class="card">
+      <h3>Top Styles</h3>
+      <table>
+        <tr><th>Style</th><th>Count</th></tr>
+        {% for s in profile.top_styles %}
+          <tr><td>{{ s.label }}</td><td>{{ s.count }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h3>Top Breweries</h3>
+      <table>
+        <tr><th>Brewery</th><th>Count</th></tr>
+        {% for b in profile.top_breweries %}
+          <tr><td>{{ b.label }}</td><td>{{ b.count }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3>Sample Check-ins</h3>
+    <table>
+      <tr><th>Beer</th><th>Brewery</th><th>Style</th><th>ABV</th><th>IBU</th><th>Rating</th><th>Global</th></tr>
+      {% for s in profile.samples %}
+        <tr>
+          <td>{{ s.beer_name }}</td>
+          <td>{{ s.brewery_name }}</td>
+          <td>{{ s.beer_type }}</td>
+          <td>{{ s.beer_abv }}</td>
+          <td>{{ s.beer_ibu }}</td>
+          <td>{{ s.rating_score }}</td>
+          <td>{{ s.global_rating_score }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endblock %}

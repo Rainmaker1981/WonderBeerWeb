@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Matches for {{ profile_name }}</h1>
+  <p class="muted">Source: <a href="{{ venue_url }}" target="_blank" rel="noopener">{{ venue_url }}</a></p>
+  {% if results|length == 0 %}
+    <div class="card">No beers found on that menu (or the page structure was not recognized).</div>
+  {% else %}
+    <div class="card">
+      <table>
+        <tr><th>Match %</th><th>Beer</th><th>Style</th><th>ABV</th><th>IBU</th></tr>
+        {% for r in results %}
+          <tr>
+            <td><strong>{{ r.match }}</strong></td>
+            <td>{{ r.beer_name }}</td>
+            <td>{{ r.beer_type }}</td>
+            <td>{{ r.beer_abv if r.beer_abv is not none }}</td>
+            <td>{{ r.beer_ibu if r.beer_ibu is not none }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}
