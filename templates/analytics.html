@@ -1,23 +1,23 @@
-{% extends "base.html" %}{% block content %}
-<h1>Analytics — {{ csv }}</h1>
+{% extends "base.html" %}
+{% block content %}
+<h2>Analytics — {{ profile.get('name', 'Profile') }}</h2>
+<p>Profile source: <code>{{ profile_name }}</code></p>
 
-<div class="cards" style="grid-template-columns:repeat(4,1fr)">
-  <div class="card"><div class="muted">Total entries</div><div class="kpi">{{ kpis.total }}</div></div>
-  <div class="card"><div class="muted">Avg ABV</div><div class="kpi">{{ '%.2f'|format(kpis.avg_abv) if kpis.avg_abv is not none else '—' }}%</div></div>
-  <div class="card"><div class="muted">Avg IBU</div><div class="kpi">{{ '%.0f'|format(kpis.avg_ibu) if kpis.avg_ibu is not none else '—' }}</div></div>
-  <div class="card"><div class="muted">Avg Rating</div><div class="kpi">{{ '%.2f'|format(kpis.avg_rating) if kpis.avg_rating is not none else '—' }}</div></div>
+<div class="grid-2">
+  <div>
+    <h3>Style Preferences</h3>
+    <canvas id="stylesChart" width="400" height="300" aria-label="Style bar chart"></canvas>
+  </div>
+  <div>
+    <h3>Flavor Balance</h3>
+    <canvas id="flavorsChart" width="400" height="300" aria-label="Flavor radar chart"></canvas>
+  </div>
 </div>
+{% endblock %}
 
-<div class="grid two" style="margin-top:14px">
-  {% for title, path in charts %}
-    <figure class="card">
-      <img src="{{ url_for('static', filename=path) }}" alt="{{ title }}" style="width:100%;height:auto">
-      <figcaption class="muted">{{ title }}</figcaption>
-    </figure>
-  {% endfor %}
-</div>
-
-{% if not charts %}
-  <p class="muted">No charts yet — CSV needs <code>beer_type</code>, <code>beer_abv</code>, <code>beer_ibu</code>, <code>rating_score</code>.</p>
-{% endif %}
+{% block scripts %}
+<script>
+  const profile = {{ profile|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/analytics.js') }}"></script>
 {% endblock %}

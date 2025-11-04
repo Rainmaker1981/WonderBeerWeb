@@ -1,24 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-  <div class="card">
-    <h1>Welcome</h1>
-    <p class="kicker">This is a local demo of your WonderBEER app: choose a brewery, upload a taste profile, and get beer matches.</p>
-    <div class="grid cols-3">
-      <div class="card">
-        <h3>1) Upload Taste Profile</h3>
-        <p>Provide a CSV with columns: <code>style</code>, <code>user_rating</code>, <code>global_rating</code>, <code>user_weight</code>, <code>global_weight</code>.</p>
-        <a href="{{ url_for('profile') }}" class="btn primary">Go to Profile</a>
-      </div>
-      <div class="card">
-        <h3>2) Pick a Brewery</h3>
-        <p>Search sample breweries by name, city, or state.</p>
-        <a href="{{ url_for('breweries') }}" class="btn primary">Find Breweries</a>
-      </div>
-      <div class="card">
-        <h3>3) Match Beers</h3>
-        <p>We’ll score beers on the menu using your preferences and global ratings.</p>
-        <a href="{{ url_for('match') }}" class="btn primary">Get Matches</a>
-      </div>
-    </div>
-  </div>
+<section class="hero">
+  <h2>Start here</h2>
+  <p>Follow the steps below to get the best results:</p>
+  <ol class="steps">
+    <li><strong>Select your profile</strong> — upload or choose a tasting profile with your preferred styles and flavors.</li>
+    <li><strong>Find local breweries</strong> — use the State → City → Venue dropdowns to pick where you’re drinking.</li>
+    <li><strong>Match beers to your style</strong> — once a venue is selected, we’ll match their menu to your profile.</li>
+  </ol>
+</section>
+
+<section class="cards">
+  <a class="card" href="{{ url_for('profiles') }}">
+    <h3>1) Choose Profile</h3>
+    <p>Upload or pick a saved profile. You can download the sample and edit it.</p>
+  </a>
+  <a class="card" href="{{ url_for('finder') }}">
+    <h3>2) Find Breweries</h3>
+    <p>Pick State → City → Venue from pre-filled data. No typing needed.</p>
+  </a>
+  <a class="card disabled" href="#">
+    <h3>3) Match Beers</h3>
+    <p>Coming from your selected venue. (Hook this to /match in your repo.)</p>
+  </a>
+</section>
+
+<section class="tips">
+  <h4>Tips</h4>
+  <ul>
+    <li>Place your <code>breweries.csv</code> in the <code>data/</code> folder (or set the <code>BREWERIES_CSV</code> env var).</li>
+    <li>CSV headers must be: <code>Name, City, State_province</code>.</li>
+    <li>Analytics works out of the box with <code>sample_profile.json</code>.</li>
+  </ul>
+</section>
 {% endblock %}

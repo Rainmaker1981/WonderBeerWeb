@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Profiles</h2>
+<p>Upload a tasting profile (JSON). Or choose one below.</p>
+
+<form class="upload" method="post" enctype="multipart/form-data">
+  <label>Upload profile (.json): <input type="file" name="profile" accept=".json"></label>
+  <button type="submit">Upload</button>
+</form>
+
+<h3>Available Profiles</h3>
+<ul class="list">
+  {% for f in files %}
+    <li>
+      <code>{{f}}</code>
+      <a class="btn" href="{{ url_for('analytics', profile=f) }}">View Analytics</a>
+      <a class="btn" href="{{ url_for('download_profile', name=f) }}">Download</a>
+    </li>
+  {% else %}
+    <li>No profiles yet. Upload one above.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
