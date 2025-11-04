@@ -1,44 +1,81 @@
-{% extends "_base.html" %}
-{% block body %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Find Breweries</title>
+  <style>
+    body {font-family: system-ui; margin:0; padding:1rem; background:#0a0a0f; color:#eee;}
+    select,button {font-size:1rem; padding:0.5rem; margin:0.25rem;}
+    .card {background:#111; padding:1rem; border-radius:8px; max-width:600px; margin:auto;}
+    a {color:#4af;}
+  </style>
+</head>
+<body>
   <div class="card">
     <h1>Find Breweries</h1>
-    <div class="grid cols-3">
-      <div>
-        <label>Country</label>
-        <select id="country"></select>
-      </div>
-      <div>
-        <label>State / Province</label>
-        <select id="state"></select>
-      </div>
-      <div>
-        <label>City</label>
-        <select id="city"></select>
-      </div>
-    </div>
-    <br>
     <div>
-      <label>Venue</label>
+      <label>Country</label><br>
+      <select id="country"></select>
+    </div>
+    <div>
+      <label>State / Province</label><br>
+      <select id="state"></select>
+    </div>
+    <div>
+      <label>City</label><br>
+      <select id="city"></select>
+    </div>
+    <div>
+      <label>Venue</label><br>
       <select id="venue"></select>
     </div>
-    <br>
-    <ul id="venueList" class="list"></ul>
-    <hr>
-    <form action="{{ url_for('match') }}" method="get">
-      <input type="hidden" name="venue" id="venueValue">
-      <label>Use Profile</label>
-      <select name="profile_json">
-        {% for filename, disp in profiles %}
-          <option value="{{ filename }}">{{ disp }}</option>
-        {% endfor %}
-      </select>
-      <button class="btn primary" type="submit">Beer Match →</button>
-    </form>
+    <div id="venueDetails" style="margin-top:1rem;"></div>
   </div>
-  <script>
-    initFinder();
-    const vSel = document.getElementById('venue');
-    const vHidden = document.getElementById('venueValue');
-    vSel.addEventListener('change', ()=> vHidden.value = vSel.value);
-  </script>
-{% endblock %}
+
+<script>
+async function getJSON(u){const r=await fetch(u);return await r.json();}
+function fill(sel,items){sel.innerHTML='';items.forEach(v=>{const o=document.createElement('option');o.textContent=v;o.value=v;sel.appendChild(o);});}
+
+const country=document.getElementById('country'),
+      state=document.getElementById('state'),
+      city=document.getElementById('city'),
+      venue=document.getElementById('venue');
+
+(async()=>{
+ const countries=await getJSON('/api/breweries/countries');
+ fill(country,countries);
+
+ country.onchange=async()=>{
+   fill(state,[]);fill(city,[]);fill(venue,[]);
+   const st=await getJSON('/api/breweries/states?country='+encodeURIComponent(country.value));
+   fill(state,st);
+ };
+
+ state.onchange=async()=>{
+   fill(city,[]);fill(venue,[]);
+   const ci=await getJSON(`/api/breweries/cities?country=${encodeURIComponent(country.value)}&state=${encodeURIComponent(state.value)}`);
+   fill(city,ci);
+ };
+
+ city.onchange=async()=>{
+   const v=await getJSON(`/api/breweries/venues?country=${encodeURIComponent(country.value)}&state=${encodeURIComponent(state.value)}&city=${encodeURIComponent(city.value)}`);
+   fill(venue,v);
+ };
+
+ venue.onchange=async()=>{
+   const d=await getJSON(`/api/breweries/venue-detail?country=${encodeURIComponent(country.value)}&state=${encodeURIComponent(state.value)}&city=${encodeURIComponent(city.value)}`);
+   const info=d.find(x=>x.name===venue.value);
+   if(!info){document.getElementById('venueDetails').innerHTML='';return;}
+   let html=`<h3>${info.name}</h3>`;
+   if(info.website_url){html+=`<p><a href="${info.website_url}" target="_blank">Visit Website</a></p>`;}
+   if(info.latitude&&info.longitude){
+      const maps=`https://www.google.com/maps/dir/?api=1&destination=${info.latitude},${info.longitude}`;
+      html+=`<p><a href="${maps}" target="_blank">Get Directions</a></p>`;
+   }
+   document.getElementById('venueDetails').innerHTML=html;
+ };
+})();
+</script>
+</body>
+</html>
