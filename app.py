@@ -130,7 +130,7 @@ def api_profile_upload():
     if pd is None:
         return jsonify({"error": "Pandas not available"}), 500
     try:
-        df = pd.read_csv(file, sep=";", engine="python")
+        df = pd.read_csv(file, sep=",", engine="python")
     except Exception as e:
         return jsonify({"error": f"CSV parse failed: {e}"}), 400
 
