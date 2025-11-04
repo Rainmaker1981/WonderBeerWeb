@@ -1,7 +1,42 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
-instance/
-static/analytics/*.png
-Data/*.xlsx
-Data/*.parquet
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.log
+*.sqlite3
+
+# Virtual environments and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter and temp files
+*.ipynb_checkpoints
+*.ipynb
+*.tmp
+*.bak
+*.old
+
+# Local data not for repo
+uploads/
+cache/
+*.csv
+*.json
+!data/breweries.csv
+!data/beer_cache.json
+!data/menus/**
+!data/profiles/**
